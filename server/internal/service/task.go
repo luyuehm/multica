@@ -1251,6 +1251,18 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "agent has no runtime")
 		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
 	}
+	// Health gate (RIC-806): a quarantined/disabled agent is never enqueued
+	// new work, even when its runtime is online. This is the router filter
+	// the description-text "QUARANTINED" markers never provided: the gate is
+	// the machine-readable health_state column, checked here at the single
+	// enqueue chokepoint shared by assign, mention, squad-leader, and rerun.
+	if err := healthBlocked(agent); err != nil {
+		slog.Info("task enqueue skipped: agent health_state blocks assignment",
+			"issue_id", util.UUIDToString(issue.ID),
+			"agent_id", util.UUIDToString(agent.ID),
+			"health_state", agent.HealthState.String)
+		return db.AgentTaskQueue{}, err
+	}
 
 	// The issue assignee reacting to an agent-authored comment is a
 	// comment_source attribution (a special case of delegation); a member
@@ -1411,6 +1423,16 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, iss
 	if !agent.RuntimeID.Valid {
 		slog.Error("mention task enqueue failed: agent has no runtime", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
 		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+	}
+	// Health gate (RIC-806): see enqueueIssueTaskWithCommentPlan. A mention
+	// or squad-leader hop onto a quarantined/disabled agent is refused at the
+	// same chokepoint so an @mention cannot route around the gate.
+	if err := healthBlocked(agent); err != nil {
+		slog.Info("mention task enqueue skipped: agent health_state blocks assignment",
+			"issue_id", util.UUIDToString(issue.ID),
+			"agent_id", util.UUIDToString(agentID),
+			"health_state", agent.HealthState.String)
+		return db.AgentTaskQueue{}, err
 	}
 
 	// An explicit mention / thread-parent / squad-leader hop from an

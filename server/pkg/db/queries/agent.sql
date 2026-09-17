@@ -2885,3 +2885,51 @@ INSERT INTO agent (
     @owner_id, '', '{}'::jsonb, '[]'::jsonb, 'user', @system_key
 )
 RETURNING *;
+
+-- name: GetAgentHealthState :one
+-- Read the machine-readable routing gate for an agent. Used by the
+-- enqueue/claim readiness path (AgentReadiness) to decide whether new work
+-- may be assigned. health_state is NULL only for rows created before the
+-- column existed and never probed; the router treats NULL as 'active'.
+SELECT health_state, health_metadata
+FROM agent
+WHERE id = $1;
+
+-- name: UpdateAgentHealthState :one
+-- Atomic write of health_state + health_metadata. Used by the model probe
+-- writer (recording last_probe/status/error/latency/consecutive_successes)
+-- and by the manual override path (recording the auditor + reason). The
+-- recovery gate calls this only after N consecutive successful probes; a
+-- failure path calls this to degrade to 'quarantined'. Pass health_metadata
+-- as NULL to leave the probe registry untouched while changing the state.
+UPDATE agent
+SET health_state = $2,
+    health_metadata = COALESCE($3, health_metadata),
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: ListAgentsByHealthState :many
+-- Returns every agent in a given health_state across a workspace. Used by
+-- the migration/migration-matrix step and the admin "show me everything
+-- quarantined" surface. Includes archived rows so the matrix can prove the
+-- gate covers the whole population.
+SELECT * FROM agent
+WHERE workspace_id = $1 AND health_state = $2
+ORDER BY created_at ASC;
+
+-- name: ListAgentHealthStates :many
+-- Lightweight health snapshot for every agent in a workspace (id, name,
+-- state, metadata). Backs the routing-matrix admin view without pulling
+-- full rows. NULL health_state is coalesced to 'active' so the matrix never
+-- shows a blank state for pre-column agents.
+SELECT
+    id,
+    name,
+    COALESCE(health_state, 'active') AS health_state,
+    health_metadata,
+    archived_at,
+    runtime_id
+FROM agent
+WHERE workspace_id = $1 AND kind = 'user'
+ORDER BY created_at ASC;

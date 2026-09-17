@@ -52,6 +52,8 @@ type Agent struct {
 	SystemKey             pgtype.Text `json:"system_key"`
 	DisabledRuntimeSkills []byte      `json:"disabled_runtime_skills"`
 	ServiceTier           pgtype.Text `json:"service_tier"`
+	HealthState           pgtype.Text `json:"health_state"`
+	HealthMetadata        []byte      `json:"health_metadata"`
 	ConversationStarters  []byte      `json:"conversation_starters"`
 }
 

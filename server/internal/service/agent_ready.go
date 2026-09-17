@@ -103,6 +103,14 @@ const runtimeOfflineCodeNotExecutable = "not_executable"
 // only surfaces when a user assigns the same agent through two different entry
 // points. Touch this function, all of them move together.
 func AgentReadiness(ctx context.Context, lookup RuntimeLookup, agent db.Agent) (AgentVerdict, error) {
+	// Health gate (RIC-806): a quarantined/disabled agent is blocked before
+	// any runtime check. The model row is not archived — the gate is the
+	// machine-readable routing decision on the agent row — so this runs
+	// first and supersedes the runtime verdict for agents the platform has
+	// explicitly gated. See agent_health.go for the state vocabulary.
+	if v := AgentHealthGate(agent); v.Blocked() {
+		return v, nil
+	}
 	if agent.ArchivedAt.Valid {
 		return AgentVerdict{
 			Availability: AgentBlocked,

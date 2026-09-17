@@ -47,6 +47,17 @@ const (
 	// collapse the two send the user looking for an offline computer that does
 	// not exist.
 	ReasonAgentRuntimeRequired ReasonCode = "agent_runtime_required"
+	// ReasonAgentQuarantined: the target's health_state is quarantined or
+	// disabled (RIC-806), so the router refuses to enqueue new work for it.
+	// The agent is not archived — its row, config, and history stay visible
+	// so the platform can still reason about it — but it is gated out of
+	// automatic AND human assignment until a recovery gate promotes it back
+	// to active/standby. Distinct from target_unavailable (archived) and
+	// runtime_unusable (machine-side) on purpose: the failure is a model
+	// health decision recorded on the agent row, and the fix is a probe /
+	// override, not a machine repair. Clients surface the auditor + reason
+	// recorded in health_metadata alongside this code.
+	ReasonAgentQuarantined ReasonCode = "agent_quarantined"
 	// ReasonAttributionBlocked: a fail-closed workspace could not resolve a
 	// responsible human for the run, so it was refused.
 	ReasonAttributionBlocked ReasonCode = "attribution_blocked"

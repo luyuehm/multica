@@ -138,6 +138,18 @@ type AgentResponse struct {
 	UpdatedAt                        string                 `json:"updated_at"`
 	ArchivedAt                       *string                `json:"archived_at"`
 	ArchivedBy                       *string                `json:"archived_by"`
+	// HealthState is the machine-readable routing gate (RIC-806):
+	// active/standby/quarantined/disabled. Empty for rows created before
+	// migration 400 means "active". Read-only on the generic UpdateAgent
+	// endpoint; override through the dedicated health endpoints so every
+	// state change writes an auditor record. See AgentHealthMetadata.
+	HealthState string `json:"health_state"`
+	// HealthMetadata is the probe/audit registry: last probe, recovery
+	// counter, auditor identity, and override reason. Omitted (null) when
+	// no probe has run and no override recorded. Auditor-id redaction
+	// mirrors the env contract: the raw metadata is owner/admin-only; other
+	// viewers see the state alone.
+	HealthMetadata json.RawMessage `json:"health_metadata,omitempty"`
 }
 
 // runtimeConfigGatewayTokenMask is the placeholder the API substitutes for
@@ -239,7 +251,33 @@ func (h *Handler) agentToResponse(a db.Agent) AgentResponse {
 		UpdatedAt:                timestampToString(a.UpdatedAt),
 		ArchivedAt:               timestampToPtr(a.ArchivedAt),
 		ArchivedBy:               uuidToPtr(a.ArchivedBy),
+		HealthState:              healthStateToResponse(a.HealthState),
+		HealthMetadata:           healthMetadataToResponse(a.HealthMetadata),
 	}
+}
+
+// healthStateToResponse normalizes the raw column value for the API surface.
+// NULL/empty maps to "active" so a pre-migration or never-probed agent reports
+// a stable, assignable state rather than a blank that clients would have to
+// interpret. The metadata JSONB is surfaced only to owners/admins; see
+// agentToResponse caller.
+func healthStateToResponse(v pgtype.Text) string {
+	if !v.Valid || v.String == "" {
+		return "active"
+	}
+	return v.String
+}
+
+// healthMetadataToResponse surfaces the probe/audit registry as raw JSON.
+// Returns nil when the column is empty so the json,omitempty on the response
+// field drops it entirely. The metadata carries no secrets — only probe
+// results, a recovery counter, and the auditor's user UUID — so it follows
+// the same owner/admin visibility as the agent row itself.
+func healthMetadataToResponse(raw []byte) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	return json.RawMessage(raw)
 }
 
 // maskGatewayToken replaces runtime_config.gateway.token with the public
