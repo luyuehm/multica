@@ -42,6 +42,33 @@ gitx() {
 }
 
 # --------------------------------------------------------------------------
+# Redact embedded credentials from a URL for output. A healthy cache stores
+# a clean clone URL, but a polluted one may carry userinfo (e.g.
+# https://token@github.com/org/repo.git or ssh://user:pass@host/path). The
+# doctor must never leak such secrets into its ANOMALIES output.
+# --------------------------------------------------------------------------
+redact_url() {
+  local u="$1"
+  local before="${u%%://*}" after="${u#*://}"
+  if [ "$before" = "$u" ]; then
+    # No scheme. scp-style user@host:path or bare name.
+    if [[ "$u" == *@* ]]; then
+      printf '***@%s' "${u#*@}"
+    else
+      printf '%s' "$u"
+    fi
+    return 0
+  fi
+  local after_rest
+  if [[ "$after" == *@* ]]; then
+    after_rest="${after#*@}"
+    printf '%s://***@%s' "$before" "$after_rest"
+  else
+    printf '%s://%s' "$before" "$after"
+  fi
+}
+
+# --------------------------------------------------------------------------
 # Resolve the cache root. The daemon records the real workspaces root in
 # MULTICA_TASK_WORKSPACES_ROOT; fall back to the documented default. We
 # deliberately do NOT guess ~/.multica*/*/.repos — that pattern has never
@@ -191,7 +218,7 @@ check_bare_dir() {
       dnorm="$(__norm_path "$dpath")"
       anorm="$(__norm_path "$apath")"
       if [ "$ahost" != "$dhost" ] || [ "$anorm" != "$dnorm" ]; then
-        echo "⚠️  $name: origin points at '$actual', expected to match dir name '$name' (origin mispoint)"
+        echo "⚠️  $name: origin points at '$(redact_url "$actual")', expected to match dir name '$name' (origin mispoint)"
         anomalies=1
       fi
     else

@@ -150,6 +150,19 @@ case "$out7" in
   *) fail "unreadable-root scenario: expected UNKNOWN, got:$out7" ;;
 esac
 
+# --- 8.5 secret redaction: a credential-bearing origin must never leak ----
+root85="$tmp/leak"
+init_bare "$root85/.repos/ws-1/github.com+org+alpha.git" "https://secret-token-abc123@github.com/other/pwned.git"
+track "$root85"
+
+out85="$(run_doctor "$root85" 2>&1 || true)"
+case "$out85" in
+  *"secret-token-abc123"*)
+    fail "redaction scenario: credential leaked into output:$out85" ;;
+  *"origin mispoint"*) ;;
+  *) fail "redaction scenario: expected an origin-mispoint anomaly:$out85" ;;
+esac
+
 # --- 8. JSON validity: parses with no jq on PATH and odd cache paths ------
 root8="$tmp/jsontest"
 init_bare "$root8/.repos/ws-1/github.com+org+alpha.git" "https://github.com/org/beta.git"  # mispoint → anomaly path
@@ -173,4 +186,4 @@ if ! printf '%s' "$json8b" | python3 -m json.tool >/dev/null 2>&1; then
   fail "json scenario (odd path): output did not parse:$json8b"
 fi
 
-echo "PASS: all 8 cache-doctor scenario groups behaved correctly"
+echo "PASS: all 9 cache-doctor scenario groups behaved correctly"
