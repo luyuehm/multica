@@ -31,6 +31,17 @@
 set -euo pipefail
 
 # --------------------------------------------------------------------------
+# git wrapper. Mirrors the daemon's git env for cache access: disable
+# terminal prompting (so auth failures are loud, not hangs) and trust all
+# directories for ownership (cache dirs may legitimately be owned by a
+# different UID). Read-only: `-c safe.directory` is a per-invocation config
+# override and writes nothing.
+# --------------------------------------------------------------------------
+gitx() {
+  git -c safe.directory='*' "$@"
+}
+
+# --------------------------------------------------------------------------
 # Resolve the cache root. The daemon records the real workspaces root in
 # MULTICA_TASK_WORKSPACES_ROOT; fall back to the documented default. We
 # deliberately do NOT guess ~/.multica*/*/.repos — that pattern has never
@@ -54,42 +65,79 @@ resolve_cache_root() {
 }
 
 # --------------------------------------------------------------------------
-# Reverse of the daemon's bareDirName: given a bare cache directory name such
-# as github.com+org+repo.git, reconstruct the canonical origin URL it SHOULD
-# point at. Used to detect origin mispoint without trusting the remote.
+# URL → (host, path), applying the daemon's splitHostAndPath logic
+# (repocache/cache.go). Handles URL form (https://host[:port]/path,
+# ssh://user@host:port/path), scp-style ([user@]host:path), and bare names /
+# absolute paths (empty host). The host is lowercased, matching the daemon's
+# strings.ToLower; the path keeps its case, matching the daemon.
 # --------------------------------------------------------------------------
-dir_name_to_expected_url() {
+__url_to_parts() {
+  local raw="$1"
+  local host="" path=""
+
+  while [ -n "$raw" ] && [ "${raw: -1}" = "/" ]; do raw="${raw%/}"; done
+
+  # URL form: scheme://[user@]host[:port][/path]
+  local re='^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]*)(/.*)?$'
+  if [[ "$raw" =~ $re ]]; then
+    host="${BASH_REMATCH[1]}"
+    path="${BASH_REMATCH[2]:-}"
+    path="${path#/}"
+    if [[ "$host" == *@* ]]; then host="${host##*@}"; fi
+  else
+    # scp-style [user@]host:path
+    local s="$raw"
+    if [[ "$s" == *@* ]]; then s="${s##*@}"; fi
+    if [[ "$s" == *:* ]]; then
+      host="${s%%:*}"
+      path="${s#*:}"
+    else
+      path="$raw"   # bare name / absolute path → empty host
+    fi
+  fi
+
+  host="${host,,}"
+  printf '%s\t%s' "$host" "$path"
+}
+
+# --------------------------------------------------------------------------
+# Bare cache dir name → (host, path), the reverse of the daemon's
+# bareDirName. The first '+'-separated segment is the (lowercased, %3A-
+# decoded) host; every later '+' is a '/' between path segments. A dir name
+# with no '+' is the daemon's bare-name fallback (a hostless absolute path
+# or bare name), which cannot be reversed unambiguously — returns an empty
+# host and path so the caller skips origin verification for it.
+# --------------------------------------------------------------------------
+__dir_to_parts() {
   local name="$1"
   local body="${name%.git}"
-  # Host plus path segments joined by '+'; a %3A in the host is a ':' port.
-  # The first '+' separates host from path; every later '+' is a '/' between
-  # path segments (GitHub/GitLab forbid '+' in path segments, so this is lossless).
-  local host="${body%%+*}"
-  local rest="${body#*+}"
-  if [ "$rest" = "$body" ]; then
-    # No '+': bare-name fallback (daemon falls back to a bare repo name).
-    printf 'file://%s' "$name"
+  local host="" path=""
+
+  if [[ "$body" != *+* ]]; then
+    printf '\t'
     return 0
   fi
+  host="${body%%+*}"
+  path="${body#*+}"
   host="${host//%3A/:}"
-  rest="${rest//+//}"
-  printf 'https://%s/%s' "$host" "$rest"
+  host="${host,,}"
+  path="${path//+//}"
+  printf '%s\t%s' "$host" "$path"
 }
 
 # --------------------------------------------------------------------------
-# Normalize a URL for comparison: strip trailing slashes, drop an optional
-# .git suffix so https://host/a/b.git and https://host/a/b compare equal.
+# Normalize a path fragment for comparison: strip a trailing .git suffix.
+# (Trailing slashes were already removed from the source strings.)
 # --------------------------------------------------------------------------
-normalize_url() {
-  local u="$1"
-  u="${u%/}"
-  u="${u%.git}"
-  printf '%s' "$u"
+__norm_path() {
+  local p="$1"
+  p="${p%.git}"
+  printf '%s' "$p"
 }
 
 # --------------------------------------------------------------------------
-# Check a single bare cache directory. Emits anomaly lines to stdout; returns
-# 1 if any anomaly was found, 0 otherwise. Never mutates anything.
+# Check a single bare cache directory. Emits zero or more anomaly lines to
+# stdout. Returns 1 if any anomaly was found, 0 otherwise. Never mutates.
 # --------------------------------------------------------------------------
 check_bare_dir() {
   local dir="$1"
@@ -98,8 +146,8 @@ check_bare_dir() {
   local out
 
   # 1. Must be a bare git repository.
-  if ! out="$(git -C "$dir" rev-parse --is-bare-repository 2>/dev/null)"; then
-    echo "⚠️  $name: not a git repository"
+  if ! out="$(gitx -C "$dir" rev-parse --is-bare-repository 2>/dev/null)"; then
+    echo "⚠️  $name: not a git repository (or not readable)"
     return 1
   fi
   if [ "$out" != "true" ]; then
@@ -109,7 +157,7 @@ check_bare_dir() {
 
   # 2. Must have exactly one remote, named origin.
   local remotes
-  remotes="$(git -C "$dir" remote 2>/dev/null || true)"
+  remotes="$(gitx -C "$dir" remote 2>/dev/null || true)"
   if [ -z "$remotes" ]; then
     echo "⚠️  $name: bare repo has no remotes"
     anomalies=1
@@ -120,21 +168,55 @@ check_bare_dir() {
     anomalies=1
   else
     # 3. Origin must point at the repository the dir name advertises.
+    # Compare (host, path) pairs scheme-agnostically: the daemon maps https,
+    # scp-style, ssh:// and host-port forms of the SAME repo to the SAME dir
+    # name, so the doctor must too. Bare-name fallback dirs (no '+') cannot
+    # be reversed — skip verification rather than raise a false anomaly.
     local actual expected
-    actual="$(git -C "$dir" remote get-url origin 2>/dev/null || true)"
-    expected="$(dir_name_to_expected_url "$name")"
-    if [ -n "$actual" ] && [ -n "$expected" ]; then
-      if [ "$(normalize_url "$actual")" != "$(normalize_url "$expected")" ]; then
-        echo "⚠️  $name: origin points at '$actual', expected '$expected' (origin mispoint)"
+    actual="$(gitx -C "$dir" remote get-url origin 2>/dev/null || true)"
+    expected="$(__dir_to_parts "$name")"
+
+    local dhost="${expected%%$'\t'*}"
+    local dpath="${expected#*$'\t'}"
+    if [ -z "$dhost" ] && [ -z "$dpath" ]; then
+      # Bare-name / absolute-path fallback: cannot verify the target. Not an
+      # anomaly; the single-remote check above is the only signal we have.
+      :
+    elif [ -n "$actual" ]; then
+      local aparts ahost apath
+      aparts="$(__url_to_parts "$actual")"
+      ahost="${aparts%%$'\t'*}"
+      apath="${aparts#*$'\t'}"
+      local dnorm anorm
+      dnorm="$(__norm_path "$dpath")"
+      anorm="$(__norm_path "$apath")"
+      if [ "$ahost" != "$dhost" ] || [ "$anorm" != "$dnorm" ]; then
+        echo "⚠️  $name: origin points at '$actual', expected to match dir name '$name' (origin mispoint)"
         anomalies=1
       fi
     else
-      echo "⚠️  $name: could not read origin URL (actual='$actual')"
+      echo "⚠️  $name: could not read origin URL"
       anomalies=1
     fi
   fi
 
   return "$anomalies"
+}
+
+# --------------------------------------------------------------------------
+# Escape a string for JSON. Pure bash — no jq dependency, so the —json mode
+# works in minimal runtimes. Handles ", \, \n, \r, \t and strips other
+# control bytes.
+# --------------------------------------------------------------------------
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  s="$(printf '%s' "$s" | LC_ALL=C tr -d '[:cntrl:]')"
+  printf '"%s"' "$s"
 }
 
 main() {
@@ -152,14 +234,13 @@ main() {
   local cache_root
   cache_root="$(resolve_cache_root "$root")"
 
-  if [ -z "$cache_root" ] || [ ! -d "$cache_root" ]; then
+  if [ -z "$cache_root" ] || [ ! -e "$cache_root" ]; then
     if $json; then
-      cat <<EOF
-{"summary": "no cache root found; check NOT_APPLICABLE", "cache_root": "$cache_root", "status": "NOT_APPLICABLE", "repo_count": 0, "anomalies": []}
-EOF
+      printf '{"summary": "no cache root found; check NOT_APPLICABLE", "cache_root": %s, "status": "NOT_APPLICABLE", "repo_count": 0, "anomalies": []}\n' \
+        "$(json_escape "${cache_root:-<unresolved>}")"
     else
       echo "SUMMARY: no cache root found — check NOT_APPLICABLE"
-      echo "CACHE_ROOT: ${cache_root:-<unresolved>} (directory does not exist)"
+      echo "CACHE_ROOT: ${cache_root:-<unresolved>} (does not exist)"
       echo "CACHE_STATUS: NOT_APPLICABLE"
       echo "REPO_COUNT: 0"
       echo "ANOMALIES: (none — nothing to inspect)"
@@ -168,18 +249,48 @@ EOF
     return 0
   fi
 
-  local repo_count=0 anomalies=0
-  local line anomalies_out summary
-  anomalies_out=""
+  if [ ! -d "$cache_root" ] || [ ! -r "$cache_root" ]; then
+    if $json; then
+      printf '{"summary": "cache root exists but is not readable; check UNKNOWN", "cache_root": %s, "status": "UNKNOWN", "repo_count": 0, "anomalies": []}\n' \
+        "$(json_escape "$cache_root")"
+    else
+      echo "SUMMARY: cache root exists but is not readable — check UNKNOWN"
+      echo "CACHE_ROOT: $cache_root"
+      echo "CACHE_STATUS: UNKNOWN"
+      echo "REPO_COUNT: 0"
+      echo "ANOMALIES: (none — root unreadable, cannot inspect)"
+      echo "NEXT_STEP: check permissions on the cache root; do not delete or modify caches."
+    fi
+    return 0
+  fi
+
+  local repo_count=0
+  local -a anomalies_list=()
+  local scan_error=false
+  local wsdir child cname rcx
+  local ws_children rc
 
   # The workspace-id directories sit directly under the cache root. Their
   # immediate children are the bare repo dirs (plus daemon-internal dotfiles
   # such as .multica_co_authored_by, which we skip).
+  ws_children="$(find "$cache_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    scan_error=true
+    ws_children=""
+  fi
+
   while IFS= read -r wsdir; do
     [ -z "$wsdir" ] && continue
+    local children
+    children="$(find "$wsdir" -mindepth 1 -maxdepth 1 2>/dev/null)"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      scan_error=true
+      continue
+    fi
     while IFS= read -r child; do
       [ -z "$child" ] && continue
-      local cname
       cname="$(basename "$child")"
       case "$cname" in
         .*) continue ;;
@@ -190,48 +301,59 @@ EOF
       if line="$(check_bare_dir "$child" "$cname")"; then
         :
       else
-        anomalies=$((anomalies + 1))
-        anomalies_out="${anomalies_out}${line}\n"
+        anomalies_list+=("$line")
       fi
-    done < <(find "$wsdir" -mindepth 1 -maxdepth 1 2>/dev/null | sort)
-  done < <(find "$cache_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    done < <(printf '%s\n' "$children" | sort)
+  done < <(printf '%s\n' "$ws_children" | sort)
 
-  if [ "$repo_count" -eq 0 ]; then
+  local summary status
+  if [ "$scan_error" = true ] && [ "$repo_count" -eq 0 ]; then
+    summary="cache root readable but scan failed; check UNKNOWN"
+    status="UNKNOWN"
+  elif [ "$repo_count" -eq 0 ]; then
     summary="no bare repos found under $cache_root — check NOT_APPLICABLE"
     status="NOT_APPLICABLE"
-  elif [ "$anomalies" -eq 0 ]; then
+  elif [ "$scan_error" = true ]; then
+    summary="${#anomalies_list[@]} of $repo_count bare repos have anomalies (and part of the scan failed)"
+    status="ANOMALIES"
+  elif [ "${#anomalies_list[@]}" -eq 0 ]; then
     summary="all $repo_count bare repos healthy (single origin, correct target)"
     status="PASS"
   else
-    summary="$anomalies of $repo_count bare repos have anomalies"
+    summary="${#anomalies_list[@]} of $repo_count bare repos have anomalies"
     status="ANOMALIES"
   fi
 
   if $json; then
-    printf '{"summary": %s, "cache_root": %s, "status": %s, "repo_count": %d, "anomalies": [%s]}\n' \
-      "$(printf '%s' "$summary" | jq -R -s . 2>/dev/null || printf '"%s"' "$summary")" \
-      "$(printf '%s' "$cache_root" | jq -R -s . 2>/dev/null || printf '"%s"' "$cache_root")" \
-      "$(printf '%s' "$status" | jq -R -s . 2>/dev/null || printf '"%s"' "$status")" \
-      "$repo_count" \
-      "$(printf '%b' "$anomalies_out" | sed '/^$/d' | sed 's/^/"/; s/$/",/' | tr -d '\n' | sed 's/,$//')"
+    printf '{"summary": %s, "cache_root": %s, "status": %s, "repo_count": %d, "anomalies": [' \
+      "$(json_escape "$summary")" \
+      "$(json_escape "$cache_root")" \
+      "$(json_escape "$status")" \
+      "$repo_count"
+    local i=0
+    for a in "${anomalies_list[@]+"${anomalies_list[@]}"}"; do
+      if [ "$i" -gt 0 ]; then printf ','; fi
+      printf '%s' "$(json_escape "$a")"
+      i=$((i + 1))
+    done
+    printf ']}\n'
   else
     echo "SUMMARY: $summary"
     echo "CACHE_ROOT: $cache_root"
     echo "CACHE_STATUS: $status"
     echo "REPO_COUNT: $repo_count"
-    if [ -n "$anomalies_out" ]; then
+    if [ "${#anomalies_list[@]}" -gt 0 ]; then
       echo "ANOMALIES:"
-      printf '%b' "$anomalies_out" | sed '/^$/d'
+      for a in "${anomalies_list[@]}"; do printf '%s\n' "$a"; done
     else
       echo "ANOMALIES: (none)"
     fi
-    if [ "$status" = "PASS" ]; then
-      echo "NEXT_STEP: none — caches are healthy."
-    elif [ "$status" = "NOT_APPLICABLE" ]; then
-      echo "NEXT_STEP: no bare caches exist; nothing to do."
-    else
-      echo "NEXT_STEP: investigate the ⚠️ lines above; do not delete or modify caches."
-    fi
+    case "$status" in
+      PASS) echo "NEXT_STEP: none — caches are healthy." ;;
+      NOT_APPLICABLE) echo "NEXT_STEP: no bare caches exist; nothing to do." ;;
+      UNKNOWN) echo "NEXT_STEP: resolve the read/scan error above; do not delete or modify caches." ;;
+      *) echo "NEXT_STEP: investigate the ⚠️ lines above; do not delete or modify caches." ;;
+    esac
   fi
 }
 
