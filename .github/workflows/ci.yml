@@ -60,6 +60,8 @@ jobs:
               - 'server/internal/handler/reserved_slugs.json'
               - 'scripts/check-ui-wildcard-exports.mjs'
               - 'scripts/check-ui-wildcard-exports.test.sh'
+              - 'scripts/multica_cache_doctor.sh'
+              - 'scripts/multica_cache_doctor.test.sh'
               - 'scripts/selfhost-config.test.sh'
               - 'scripts/drop-database.sh'
               - 'scripts/remove-worktree.sh'
@@ -257,6 +259,10 @@ jobs:
       - name: Test worktree database cleanup
         if: ${{ needs.changes.outputs.frontend == 'true' }}
         run: bash scripts/worktree-db.test.sh
+
+      - name: Test multica bare-cache doctor
+        if: ${{ needs.changes.outputs.frontend == 'true' }}
+        run: bash scripts/multica_cache_doctor.test.sh
 
       - name: Test development environment registry
         if: ${{ needs.changes.outputs.frontend == 'true' }}
