@@ -16,7 +16,7 @@
 --     repository rule.
 --
 -- The workspace_id + name uniqueness lives in a follow-up single-statement
--- migration (501) because CREATE UNIQUE INDEX CONCURRENTLY cannot share a
+-- migration (515) because CREATE UNIQUE INDEX CONCURRENTLY cannot share a
 -- migration with other statements.
 
 CREATE TABLE task_templates (
