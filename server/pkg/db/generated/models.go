@@ -1399,6 +1399,21 @@ type TaskMessage struct {
 	CallID          pgtype.Text        `json:"call_id"`
 }
 
+type TaskTemplate struct {
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	Name                string             `json:"name"`
+	TitleTemplate       pgtype.Text        `json:"title_template"`
+	DescriptionTemplate pgtype.Text        `json:"description_template"`
+	Variables           []byte             `json:"variables"`
+	Enabled             bool               `json:"enabled"`
+	Position            float64            `json:"position"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	CreatedByID         pgtype.UUID        `json:"created_by_id"`
+	UpdatedByID         pgtype.UUID        `json:"updated_by_id"`
+}
+
 type TaskToken struct {
 	ID          pgtype.UUID        `json:"id"`
 	TokenHash   string             `json:"token_hash"`
