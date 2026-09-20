@@ -333,3 +333,6 @@ export type {
   WorkspaceSubscriptionSeatReconcileResult,
   CreateWorkspaceSubscriptionPortalResponse,
 } from "./billing";
+export type { IssueWakeup, WakeupPreview, IssueWakeupSummaryRow } from "./issue-wakeup";
+
+export type { WorkspaceWakeup, WorkspaceWakeupPage, WorkspaceWakeupFilters, WakeupScope } from "./issue-wakeup";

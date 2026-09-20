@@ -544,7 +544,11 @@ deleted_comment_agent_deliveries AS (
 DELETE FROM comment WHERE id IN (SELECT id FROM ws_comments);
 
 -- name: DeleteWorkspaceIssueRoots :exec
-WITH
+WITH deleted_wakeup_receipts AS (
+ DELETE FROM issue_wakeup_receipt WHERE wakeup_id IN (SELECT id FROM issue_wakeup WHERE workspace_id=$1)
+), deleted_wakeups AS (
+ DELETE FROM issue_wakeup WHERE workspace_id=$1
+),
 deleted_issues AS (
     DELETE FROM issue WHERE issue.workspace_id = $1
 ),
