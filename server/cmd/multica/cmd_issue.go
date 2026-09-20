@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/multica-ai/multica/server/internal/issuefmt"
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
@@ -1262,6 +1263,19 @@ func runIssueCreate(cmd *cobra.Command, _ []string) error {
 		if err := guardLocalPathLinks(desc, "issue description",
 			"Deliver the file itself with `multica issue create --attachment <path>` (repeatable) and drop the link."); err != nil {
 			return err
+		}
+		// RIC-908: enforce the minimum structured-markdown shape client-side
+		// before the issue is ever created. Automation scripts that shell out to
+		// `multica issue create` inherit this gate for free; a rejected
+		// description returns a clear error naming the missing sections.
+		// Set MULTICA_SKIP_DESC_VALIDATION=1 as an explicit escape hatch for a
+		// legacy flow that genuinely needs a one-line description (not to mask
+		// regressions — every auto-creation script in openclaw-memory-core was
+		// updated to emit sectioned markdown).
+		if os.Getenv("MULTICA_SKIP_DESC_VALIDATION") == "" {
+			if err := issuefmt.Validate(desc); err != nil {
+				return fmt.Errorf("issue description 未通过强制结构校验: %w", err)
+			}
 		}
 		body["description"] = desc
 	}
