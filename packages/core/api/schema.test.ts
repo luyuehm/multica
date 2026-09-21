@@ -382,6 +382,8 @@ describe("ApiClient schema fallback", () => {
       expect(res.autopilots[0]?.assignee_type).toBe("agent");
       expect(res.autopilots[0]?.trigger_kinds).toBeUndefined();
       expect(res.autopilots[0]?.last_run_status).toBeUndefined();
+      // Pre-RIC-947 servers omit issue_body_template entirely.
+      expect(res.autopilots[0]?.issue_body_template).toBeUndefined();
     });
 
     it("passes derived fields through and tolerates enum drift", async () => {
@@ -390,6 +392,7 @@ describe("ApiClient schema fallback", () => {
           {
             ...baseAutopilot,
             assignee_type: "squad",
+            issue_body_template: "## 目标\n{{description}}",
             trigger_kinds: ["schedule", "some_future_kind"],
             next_run_at: "2026-06-13T09:00:00Z",
             last_run_status: "some_future_status",
@@ -405,6 +408,9 @@ describe("ApiClient schema fallback", () => {
       ]);
       expect(res.autopilots[0]?.next_run_at).toBe("2026-06-13T09:00:00Z");
       expect(res.autopilots[0]?.last_run_status).toBe("some_future_status");
+      expect(res.autopilots[0]?.issue_body_template).toBe(
+        "## 目标\n{{description}}",
+      );
     });
   });
 

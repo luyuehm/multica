@@ -22,6 +22,7 @@ func newAutopilotCreateTestCmd() *cobra.Command {
 	cmd.Flags().String("mode", "", "")
 	cmd.Flags().String("project", "", "")
 	cmd.Flags().String("issue-title-template", "", "")
+	cmd.Flags().String("issue-body-template", "", "")
 	cmd.Flags().StringArray("subscriber", nil, "")
 	cmd.Flags().String("output", "json", "")
 	return cmd
@@ -36,6 +37,7 @@ func newAutopilotUpdateTestCmd() *cobra.Command {
 	cmd.Flags().String("status", "", "")
 	cmd.Flags().String("mode", "", "")
 	cmd.Flags().String("issue-title-template", "", "")
+	cmd.Flags().String("issue-body-template", "", "")
 	cmd.Flags().StringArray("subscriber", nil, "")
 	cmd.Flags().Bool("clear-subscribers", false, "")
 	cmd.Flags().String("output", "json", "")
@@ -491,6 +493,91 @@ func TestRunAutopilotCreateSendsSubscribers(t *testing.T) {
 		t.Fatalf("runAutopilotCreate: %v", err)
 	}
 	assertAutopilotSubscriberBody(t, body, userID)
+}
+
+func TestRunAutopilotCreateSendsIssueBodyTemplate(t *testing.T) {
+	const (
+		agentID = "11111111-1111-1111-1111-111111111111"
+		bodyTpl = "## 目标\n{{description}}\n\n## 日期\n{{date}}"
+	)
+
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/autopilots":
+			if r.Method != http.MethodPost {
+				t.Errorf("method = %s, want POST", r.Method)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode body: %v", err)
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"id":    "autopilot-1",
+				"title": "Daily planner",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	// A task-scoped mat_ token so the test also passes inside an agent workdir,
+	// where a daemon task marker makes newAPIClient reject a plain token.
+	t.Setenv("MULTICA_TOKEN", "mat_test-token")
+
+	cmd := newAutopilotCreateTestCmd()
+	_ = cmd.Flags().Set("title", "Daily planner")
+	_ = cmd.Flags().Set("agent", agentID)
+	_ = cmd.Flags().Set("mode", "create_issue")
+	_ = cmd.Flags().Set("issue-body-template", bodyTpl)
+
+	if err := runAutopilotCreate(cmd, nil); err != nil {
+		t.Fatalf("runAutopilotCreate: %v", err)
+	}
+	if got, _ := body["issue_body_template"].(string); got != bodyTpl {
+		t.Fatalf("issue_body_template = %#v, want %q", body["issue_body_template"], bodyTpl)
+	}
+}
+
+func TestRunAutopilotUpdateSendsIssueBodyTemplate(t *testing.T) {
+	const (
+		autopilotID = "33333333-3333-3333-3333-333333333333"
+		bodyTpl     = "## 目标\n{{description}}"
+	)
+
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/autopilots/"+autopilotID {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodPatch {
+			t.Errorf("method = %s, want PATCH", r.Method)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": autopilotID})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	// A task-scoped mat_ token so the test also passes inside an agent workdir,
+	// where a daemon task marker makes newAPIClient reject a plain token.
+	t.Setenv("MULTICA_TOKEN", "mat_test-token")
+
+	cmd := newAutopilotUpdateTestCmd()
+	_ = cmd.Flags().Set("issue-body-template", bodyTpl)
+
+	if err := runAutopilotUpdate(cmd, []string{autopilotID}); err != nil {
+		t.Fatalf("runAutopilotUpdate: %v", err)
+	}
+	if got, _ := body["issue_body_template"].(string); got != bodyTpl {
+		t.Fatalf("issue_body_template = %#v, want %q", body["issue_body_template"], bodyTpl)
+	}
 }
 
 func TestRunAutopilotUpdateSendsProjectIDChanges(t *testing.T) {

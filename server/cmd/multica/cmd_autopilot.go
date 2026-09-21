@@ -133,6 +133,7 @@ func init() {
 	autopilotCreateCmd.Flags().String("mode", "", "Execution mode: create_issue or run_only (required)")
 	autopilotCreateCmd.Flags().String("project", "", "Project ID (optional)")
 	autopilotCreateCmd.Flags().String("issue-title-template", "", "Template for issue titles (create_issue mode). Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected at create-time.")
+	autopilotCreateCmd.Flags().String("issue-body-template", "", "Template for issue bodies (create_issue mode). {{date}} and {{description}} are interpolated; any other {{...}} token is rejected at create-time. Empty/omitted keeps the legacy verbatim-description behavior.")
 	autopilotCreateCmd.Flags().StringArray("subscriber", nil, "Member subscriber to notify for issues this autopilot creates (name or user ID; repeatable)")
 	autopilotCreateCmd.Flags().String("output", "json", "Output format: table or json")
 
@@ -144,6 +145,7 @@ func init() {
 	autopilotUpdateCmd.Flags().String("status", "", "New status (active, paused)")
 	autopilotUpdateCmd.Flags().String("mode", "", "New execution mode (create_issue or run_only)")
 	autopilotUpdateCmd.Flags().String("issue-title-template", "", "New issue title template. Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected.")
+	autopilotUpdateCmd.Flags().String("issue-body-template", "", "New issue body template. {{date}} and {{description}} are interpolated; any other {{...}} token is rejected. Pass empty string to clear the template.")
 	autopilotUpdateCmd.Flags().StringArray("subscriber", nil, "Replace subscribers with this member (name or user ID; repeatable)")
 	autopilotUpdateCmd.Flags().Bool("clear-subscribers", false, "Remove all autopilot subscribers")
 	autopilotUpdateCmd.Flags().String("output", "json", "Output format: table or json")
@@ -427,6 +429,9 @@ func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
 	if v, _ := cmd.Flags().GetString("issue-title-template"); v != "" {
 		body["issue_title_template"] = v
 	}
+	if v, _ := cmd.Flags().GetString("issue-body-template"); v != "" {
+		body["issue_body_template"] = v
+	}
 	if subscriberRefs, _ := cmd.Flags().GetStringArray("subscriber"); len(subscriberRefs) > 0 {
 		subscribers, err := resolveAutopilotSubscriberInputs(ctx, client, subscriberRefs)
 		if err != nil {
@@ -506,6 +511,10 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("issue-title-template") {
 		v, _ := cmd.Flags().GetString("issue-title-template")
 		body["issue_title_template"] = v
+	}
+	if cmd.Flags().Changed("issue-body-template") {
+		v, _ := cmd.Flags().GetString("issue-body-template")
+		body["issue_body_template"] = v
 	}
 	clearSubscribers, _ := cmd.Flags().GetBool("clear-subscribers")
 	subscriberRefs, _ := cmd.Flags().GetStringArray("subscriber")
