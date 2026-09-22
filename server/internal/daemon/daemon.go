@@ -9796,12 +9796,13 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		watchdogFired := idleWatchdogFired.Load()
 		waitForDrain()
 		if !ok {
-			return agent.Result{Status: "failed", Error: "agent result channel closed without a result"}, toolCount.Load(), nil
-		}
-		// terminalObserved outranks a watchdog that fired anyway: if the backend
-		// had already read its authoritative result, this is the real outcome and
-		// re-tagging it would report a completed run as a hang.
-		if terminalObserved() {
+			// A closed channel carries no outcome of its own, so it must never
+			// read as success; a stop observed alongside it still names the cause.
+			result = agent.Result{Status: "failed"}
+		} else if terminalObserved() {
+			// terminalObserved outranks a watchdog that fired anyway: if the
+			// backend had already read its authoritative result, this is the real
+			// outcome and re-tagging it would report a completed run as a hang.
 			return result, toolCount.Load(), nil
 		}
 		switch {
@@ -9821,6 +9822,8 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		case errors.Is(stopErr, context.DeadlineExceeded):
 			result.Status = "timeout"
 			result.Error = timeoutReason
+		case !ok:
+			result.Error = "agent result channel closed without a result"
 		}
 		return result, toolCount.Load(), nil
 	case <-drainCtx.Done():
