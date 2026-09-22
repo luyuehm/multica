@@ -56,7 +56,7 @@ func TestAuthRejectsSuspendedJWT(t *testing.T) {
 	setAccountStatus(t, pool, userID, auth.AccountStatusSuspended)
 
 	guard := &auth.AccountGuard{Queries: queries}
-	mw := Auth(nil, nil, nil, guard)
+	mw := Auth(nil, nil, nil, nil, guard)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next handler should not be called for a suspended user")
 	}))
@@ -102,7 +102,7 @@ func TestAuthRejectsSuspendedPATCacheHit(t *testing.T) {
 	patCache.Set(context.Background(), hash, userID, auth.AuthCacheTTL)
 
 	guard := &auth.AccountGuard{Queries: queries} // nil Cache: every Check hits the DB
-	mw := Auth(nil, patCache, nil, guard)
+	mw := Auth(nil, patCache, nil, nil, guard)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next handler should not be called for a suspended user")
 	}))
@@ -137,7 +137,7 @@ func TestAuthAllowsActiveUser(t *testing.T) {
 
 	guard := &auth.AccountGuard{Queries: queries}
 	var gotUserID string
-	mw := Auth(nil, nil, nil, guard)
+	mw := Auth(nil, nil, nil, nil, guard)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserID = r.Header.Get("X-User-ID")
 		w.WriteHeader(http.StatusOK)
@@ -157,5 +157,46 @@ func TestAuthAllowsActiveUser(t *testing.T) {
 	}
 	if gotUserID != userID {
 		t.Fatalf("expected X-User-ID %q, got %q", userID, gotUserID)
+	}
+}
+
+// TestAuthDoesNotRenewSuspendedSession pins the ordering sliding sessions
+// (MUL-7436) rely on in the fork: a suspended user's cookie inside its
+// renewal window is refused before renewal runs, so suspension can never be
+// outlived by a session that keeps re-issuing itself.
+func TestAuthDoesNotRenewSuspendedSession(t *testing.T) {
+	pool := openPool(t)
+	defer pool.Close()
+	queries := db.New(pool)
+
+	userID := seedSuspensionUser(t, queries)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM "user" WHERE id = $1`, userID)
+	})
+	setAccountStatus(t, pool, userID, auth.AccountStatusSuspended)
+
+	guard := &auth.AccountGuard{Queries: queries}
+	mw := Auth(nil, nil, nil, nil, guard)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("next handler should not be called for a suspended user")
+	}))
+
+	claims := validClaims()
+	claims["sub"] = userID
+	// A minute left is inside the renewal window whatever TTL the package
+	// ends up with. Deliberately not auth.AuthRenewThreshold(): AuthTokenTTL
+	// is cached process-wide on first use, and reading it here would pin the
+	// default before the CloudFront test sets AUTH_TOKEN_TTL.
+	claims["exp"] = time.Now().Add(time.Minute).Unix()
+	token := generateToken(claims, auth.JWTSecret())
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, cookieRequest(http.MethodGet, token))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := renewedAuthCookie(rec); got != "" {
+		t.Fatal("a suspended session must not be renewed")
 	}
 }

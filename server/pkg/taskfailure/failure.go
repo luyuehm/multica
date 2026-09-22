@@ -27,7 +27,7 @@
 //     runtime_recovery, timeout, iteration_limit, agent_blocked,
 //     api_invalid_request, skill_bundle_unavailable,
 //     runtime_cli_timeout, environment_prepare_failed,
-//     invalid_task_identity, budget_exceeded
+//     invalid_task_identity, runtime_access_denied, budget_exceeded
 //
 //   - 14 agent-side values (with `agent_error.` prefix) produced by
 //     Classify(rawError) when the agent process surfaced an error string.
@@ -187,6 +187,22 @@ const (
 	// only repeat an isolation failure.
 	ReasonInvalidTaskIdentity Reason = "invalid_task_identity"
 
+	// ReasonRuntimeAccessDenied: the daemon refused a claimed task because
+	// a private runtime does not authorize the task's agent — the runtime
+	// owner and the agent owner differ, a private owned runtime was paired
+	// with an ownerless agent, or the runtime owner needed for
+	// authorization was missing at the delivery gate. The agent process is
+	// never launched. Unlike ReasonInvalidTaskIdentity the task's persisted
+	// identity is intact; what fails is ownership authorization. Permanent
+	// and non-retryable: retrying the same runtime/agent pair reproduces
+	// the denial, so recovery is user configuration (make the runtime
+	// public, or rebind the agent to a runtime its owner may use), not
+	// another attempt. Written by the daemon claim settlement paths in
+	// handler/daemon.go. Shares the runtime_access_denied wire value with
+	// dispatch.ReasonRuntimeAccessDenied so admission blocks and persisted
+	// settlement failures surface the same recovery guidance.
+	ReasonRuntimeAccessDenied Reason = "runtime_access_denied"
+
 	// Agent process side: failure surfaced by the agent CLI / SDK as
 	// an error string. Classify(rawError) is responsible for picking
 	// the right sub-reason from the string. IsAgentError returns true
@@ -285,6 +301,7 @@ var allReasons = []Reason{
 	ReasonRuntimeCLITimeout,
 	ReasonEnvironmentPrepareFailed,
 	ReasonInvalidTaskIdentity,
+	ReasonRuntimeAccessDenied,
 	ReasonBudgetExceeded,
 
 	// Agent process side: provider errors.

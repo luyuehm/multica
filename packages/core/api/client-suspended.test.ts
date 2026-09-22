@@ -10,9 +10,11 @@ afterEach(() => {
 
 describe("ApiClient session rejection", () => {
   it("fires onSessionRejected('account_suspended') and throws a 403 ApiError on ACCOUNT_SUSPENDED", async () => {
+    // A fresh Response per call: the client may clone a 403 body (CSRF retry
+    // probe), which a body already consumed by the previous call cannot do.
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
+      vi.fn().mockImplementation(async () =>
         new Response(
           JSON.stringify({ error: "account suspended", code: "ACCOUNT_SUSPENDED" }),
           { status: 403, headers: { "Content-Type": "application/json" } },

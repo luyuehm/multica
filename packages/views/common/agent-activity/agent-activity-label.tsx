@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@multica/ui/lib/utils";
+import { ShimmerText } from "@multica/ui/components/common/shimmer-text";
 import { UnicodeSpinner } from "@multica/ui/components/common/unicode-spinner";
 import type { AgentAvailability } from "@multica/core/agents";
 import type { TaskMessagePayload } from "@multica/core/types";
@@ -57,8 +58,8 @@ export function AgentActivityLabel({
       {!hideSpinner && !isStatic && (
         <UnicodeSpinner name="breathe" className="opacity-70" />
       )}
-      <span className={cn("truncate", !isStatic && "animate-chat-text-shimmer")}>
-        {label}
+      <span className="truncate">
+        <ShimmerText active={!isStatic}>{label}</ShimmerText>
       </span>
     </span>
   );

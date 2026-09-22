@@ -17,6 +17,11 @@ import { createLogger } from "../logger";
 import { defaultStorage } from "./storage";
 import { SESSION_ENDED_REASON_KEY } from "../auth/utils";
 import { AuthInitializer } from "./auth-initializer";
+import {
+  createSessionRenewal,
+  watchSessionActivity,
+  type SessionRenewal,
+} from "./session-renewal";
 import type { CoreProviderProps, ClientIdentity } from "./types";
 import type { StorageAdapter } from "../types/storage";
 import { ClientUsageReporter } from "../client-usage";
@@ -42,6 +47,10 @@ function handleAccountSuspended(storage: StorageAdapter) {
   authStore?.getState().logout();
 }
 
+// Token mode only. Cookie-mode browsers have their session re-issued by the
+// server on any authenticated request, so there is nothing for a client-side
+// renewer to do there (MUL-7436).
+let sessionRenewal: SessionRenewal | null = null;
 // Named rather than positional: onLogin / onLogout / onSessionExpired are
 // three adjacent `() => void`, and nothing but the argument order would tell
 // them apart at the call site.
@@ -106,6 +115,13 @@ function initCore({
       storage.removeItem("multica_token");
       authStore?.getState().logout();
     },
+    // Token mode only. Desktop runs one ApiClient per window over one shared
+    // localStorage, so the credential has to be read through to storage rather
+    // than cached per instance — otherwise a session renewed in one window
+    // leaves the others sending a token that is on its way out (MUL-7436).
+    getToken: cookieAuth
+      ? undefined
+      : () => storage.getItem("multica_token"),
     identity,
   });
   setApiInstance(api);
@@ -133,6 +149,15 @@ function initCore({
 
   chatStore = createChatStore({ storage });
   registerChatStore(chatStore);
+
+  if (!cookieAuth) {
+    sessionRenewal = createSessionRenewal({
+      api,
+      storage,
+      isAuthenticated: () => authStore.getState().status === "authenticated",
+      logger: createLogger("auth"),
+    });
+  }
 
   initialized = true;
 }
@@ -173,6 +198,23 @@ export function CoreProvider({
   // server and idempotent, so mounting it here covers both apps in one place.
   useEffect(() => {
     installFreezeWatchdog();
+  }, []);
+
+  // Sliding session renewal, driven by use rather than by a clock. The store
+  // subscription covers the launch check: at mount the boot identity probe is
+  // still running, so the first attempt that finds a live session is the one
+  // that fires — and `maybeRenew` declines cheaply for every store update
+  // after that until the server-supplied interval has elapsed.
+  useEffect(() => {
+    const renewal = sessionRenewal;
+    if (!renewal) return;
+    const unsubscribe = authStore.subscribe(() => renewal.maybeRenew());
+    const stopWatching = watchSessionActivity(renewal);
+    renewal.maybeRenew();
+    return () => {
+      unsubscribe();
+      stopWatching();
+    };
   }, []);
 
   // I18nProvider wraps everything else: server and client must use the same

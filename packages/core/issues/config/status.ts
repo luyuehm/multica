@@ -1,59 +1,65 @@
-import type { IssueStatusCategory } from "../../types";
+import type { BuiltInIssueStatus, IssueStatusCategory } from "../../types";
 
-// These are keyed on CATEGORY, not on status key. A workspace can define any
-// number of custom statuses, but every one of them belongs to exactly one of
-// the 7 categories below — so board columns, the presentation config and the
-// paginated fetch all keep a fixed shape. Resolve a status KEY to its category
-// with the workspace catalog (`useIssueStatuses`) before indexing these.
-// (MUL-6243)
+// These three are keyed on CATEGORY, not on status key. A workspace can define
+// any number of custom statuses, but every one belongs to exactly one of the
+// four lifecycle categories below. Concrete built-in status keys remain a
+// separate seven-value compatibility surface. (MUL-6243, MUL-7240)
 //
-// `archive` (fork status #39, migration 069) is the one key that is NOT a
-// catalog category: the server refuses it as one, so no custom status can ever
-// inherit it. It still resolves to a column and a label of its own, which is
-// what keeps an archived issue out of `todo`. Hence the split below —
-// STATUS_ORDER and STATUS_CONFIG cover it, ALL_STATUSES (the catalog
-// categories: what the settings UI offers and what a fetch fans out over)
-// does not.
+// `archive` (fork status #39, migration 069) is a built-in KEY, never a catalog
+// entry or category: no issue_status row carries it, so no custom status can
+// inherit its retired-work guards. Its lifecycle is `closed`, like `cancelled`,
+// and like an archived catalog status it only becomes a column through an
+// explicit status filter (see statusColumnKeys).
 
-/** Every key that renders as its own column, `archive` included. */
 export const STATUS_ORDER: IssueStatusCategory[] = [
+  "unstarted",
+  "started",
+  "done",
+  "closed",
+];
+
+export const ALL_STATUSES: IssueStatusCategory[] = [...STATUS_ORDER];
+
+/** API boundary: accept the installed seven-value and interim five-value enums. */
+export function normalizeIssueStatusCategory(value: string): IssueStatusCategory | null {
+  if (value === "completed") return "done";
+  if (value === "canceled") return "closed";
+  if (STATUS_ORDER.includes(value as IssueStatusCategory)) return value as IssueStatusCategory;
+  return Object.hasOwn(BUILT_IN_STATUS_CATEGORY, value) ? BUILT_IN_STATUS_CATEGORY[value as BuiltInIssueStatus] : null;
+}
+
+export const BUILT_IN_STATUS_ORDER: BuiltInIssueStatus[] = [
   "backlog",
   "todo",
   "in_progress",
   "in_review",
-  "done",
   "blocked",
+  "done",
   "cancelled",
   "archive",
 ];
 
-/** The 7 catalog categories, in display order. */
-export const ALL_STATUSES: IssueStatusCategory[] = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "in_review",
-  "done",
-  "blocked",
-  "cancelled",
-];
+export const BUILT_IN_STATUS_CATEGORY: Record<BuiltInIssueStatus, IssueStatusCategory> = {
+  backlog: "unstarted",
+  todo: "unstarted",
+  in_progress: "started",
+  in_review: "started",
+  blocked: "started",
+  done: "done",
+  cancelled: "closed",
+  archive: "closed",
+};
 
-/** Statuses shown as board columns (excludes cancelled). */
-export const BOARD_STATUSES: IssueStatusCategory[] = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "in_review",
-  "done",
-  "blocked",
-];
-
-/**
- * Default-visible lifecycle statuses (MUL-4290 made `cancelled` one of them) —
- * the 7 catalog categories. `archive` stays opt-in: it is only ever shown via
- * an explicit status filter.
- */
-export const DEFAULT_VISIBLE_STATUSES: IssueStatusCategory[] = [...BOARD_STATUSES, "cancelled"];
+export const BUILT_IN_STATUS_LABEL: Record<BuiltInIssueStatus, string> = {
+  backlog: "Backlog",
+  todo: "Todo",
+  in_progress: "In Progress",
+  in_review: "In Review",
+  blocked: "Blocked",
+  done: "Done",
+  cancelled: "Cancelled",
+  archive: "Archive",
+};
 
 export const STATUS_CONFIG: Record<
   IssueStatusCategory,
@@ -65,12 +71,8 @@ export const STATUS_CONFIG: Record<
     columnBg: string;
   }
 > = {
-  backlog: { label: "Backlog", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
-  todo: { label: "Todo", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
-  in_progress: { label: "In Progress", iconColor: "text-warning", hoverBg: "hover:bg-warning/10", dividerColor: "bg-warning", columnBg: "bg-warning/5" },
-  in_review: { label: "In Review", iconColor: "text-success", hoverBg: "hover:bg-success/10", dividerColor: "bg-success", columnBg: "bg-success/5" },
+  unstarted: { label: "Unstarted", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
+  started: { label: "Started", iconColor: "text-warning", hoverBg: "hover:bg-warning/10", dividerColor: "bg-warning", columnBg: "bg-warning/5" },
   done: { label: "Done", iconColor: "text-info", hoverBg: "hover:bg-info/10", dividerColor: "bg-info", columnBg: "bg-info/5" },
-  blocked: { label: "Blocked", iconColor: "text-destructive", hoverBg: "hover:bg-destructive/10", dividerColor: "bg-destructive", columnBg: "bg-destructive/5" },
-  cancelled: { label: "Cancelled", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
-  archive: { label: "Archive", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
+  closed: { label: "Closed", iconColor: "text-muted-foreground", hoverBg: "hover:bg-accent", dividerColor: "bg-muted-foreground/40", columnBg: "bg-muted/40" },
 };
