@@ -96,7 +96,7 @@ Open [http://localhost:3000](http://localhost:3000) directly. You also won't nee
 
 ### Remote access
 
-Docker Compose binds `3000` and `8080` to `127.0.0.1` only. Do not switch this to `0.0.0.0` to expose the ports to the public internet; use a reverse proxy with HTTPS instead.
+Docker Compose binds `3000` and `8080` to `0.0.0.0` (all host interfaces) so the console is reachable from the LAN (e.g. `http://<host-lan-ip>:3000`). Keep these bindings — do not revert them to `127.0.0.1` loopback, which cuts off LAN access. To expose the service to the public internet, use a reverse proxy with HTTPS instead of relying on the raw bindings.
 
 The example below uses two domains:
 

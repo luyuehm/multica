@@ -1,11 +1,14 @@
 # Self-hosting Docker Compose — starts PostgreSQL, backend, and frontend.
 #
-# Services bind to 127.0.0.1 only. For cross-machine or public access, front
-# them with a reverse proxy (Caddy / nginx / Cloudflare Tunnel) that terminates
-# TLS and forwards to 127.0.0.1:8080 (backend) and 127.0.0.1:3000 (frontend).
-# Do NOT change these bindings to 0.0.0.0 — Docker bypasses host firewalls
-# (UFW/iptables) by default, so the raw ports would be exposed to the internet
-# while any deployment credentials remain weak. See:
+# Frontend and backend bind to 0.0.0.0 so the console is reachable from the
+# whole LAN (e.g. http://<host-lan-ip>:3000) — REQUIRED for this deployment;
+# do NOT revert these bindings to 127.0.0.1 loopback, it cuts off LAN access.
+# For cross-machine or public access beyond the LAN, front the service with a
+# reverse proxy (Caddy / nginx / Cloudflare Tunnel) that terminates TLS.
+# Security note: Docker publishes mapped ports past host firewalls
+# (UFW/iptables) by default, so before exposing to the public internet, put the
+# deployment behind a firewall/VPN or a TLS-terminating reverse proxy while
+# credentials remain weak by default. See:
 #   apps/docs/content/docs/self-host-quickstart.mdx
 #
 # Usage:
@@ -58,7 +61,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "127.0.0.1:${BACKEND_PORT:-${API_PORT:-${SERVER_PORT:-${PORT:-8080}}}}:8080"
+      - "0.0.0.0:${BACKEND_PORT:-${API_PORT:-${SERVER_PORT:-${PORT:-8080}}}}:8080"
     volumes:
       - backend_uploads:/app/data/uploads
     environment:
@@ -220,7 +223,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+      - "0.0.0.0:${FRONTEND_PORT:-3000}:3000"
     environment:
       HOSTNAME: "0.0.0.0"
       REMOTE_API_URL: ${REMOTE_API_URL:-http://backend:8080}
