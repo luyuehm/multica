@@ -3563,8 +3563,9 @@ export class ApiClient {
   }
 
   // Issue templates
-  async listIssueTemplates(): Promise<IssueTemplateSummary[]> {
-    const raw = await this.fetch("/api/issue-templates");
+  async listIssueTemplates(includeArchived = false): Promise<IssueTemplateSummary[]> {
+    const query = includeArchived ? "?include_archived=true" : "";
+    const raw = await this.fetch(`/api/issue-templates${query}`);
     return parseWithFallback(raw, IssueTemplateSummaryListSchema, EMPTY_ISSUE_TEMPLATE_SUMMARY_LIST, {
       endpoint: "listIssueTemplates",
     });
@@ -3594,6 +3595,20 @@ export class ApiClient {
     });
     return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
       endpoint: "updateIssueTemplate",
+    });
+  }
+
+  async archiveIssueTemplate(id: string): Promise<IssueTemplate> {
+    const raw = await this.fetch(`/api/issue-templates/${id}/archive`, { method: "POST" });
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "archiveIssueTemplate",
+    });
+  }
+
+  async unarchiveIssueTemplate(id: string): Promise<IssueTemplate> {
+    const raw = await this.fetch(`/api/issue-templates/${id}/unarchive`, { method: "POST" });
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "unarchiveIssueTemplate",
     });
   }
 
