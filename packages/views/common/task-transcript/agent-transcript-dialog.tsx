@@ -1154,7 +1154,7 @@ export function AgentTranscriptDialog({
                 type="button"
                 onClick={() => onRetryLoad()}
                 disabled={retrying}
-                className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-0.5 font-medium transition-colors hover:bg-destructive/15 disabled:opacity-50"
+                className="inline-flex shrink-0 items-center gap-1 rounded-xs px-2 py-0.5 font-medium transition-colors hover:bg-destructive/15 disabled:opacity-50"
               >
                 {retrying && <Loader2 className="h-3 w-3 animate-spin" />}
                 {t(($) => $.transcript.retry)}

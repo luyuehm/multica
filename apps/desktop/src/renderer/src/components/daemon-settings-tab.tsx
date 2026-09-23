@@ -242,7 +242,7 @@ export function DaemonSettingsTab() {
             <AlertDialogTitle>Change repos storage location?</AlertDialogTitle>
             <AlertDialogDescription>
               The daemon will store repos and task environments in:{' '}
-              <span className="font-mono text-caption bg-muted/50 px-1.5 py-0.5 rounded break-all">
+              <span className="font-mono text-caption bg-muted/50 px-1.5 py-0.5 rounded-xs break-all">
                 {confirmNewRoot}
               </span>
               . The daemon will be restarted to apply this change. Existing repos at the current

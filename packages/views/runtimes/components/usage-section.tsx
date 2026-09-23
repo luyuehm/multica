@@ -920,7 +920,7 @@ function CostByList({
                     aria-label={t(($) => $.usage.cost_by_model_breakdown_aria)}
                     aria-expanded={isOpen}
                     onClick={() => toggle(row.key)}
-                    className="-ml-1 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="-ml-1 shrink-0 rounded-xs p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <ChevronRight
                       className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-90")}
