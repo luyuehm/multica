@@ -241,7 +241,7 @@ We release most weekdays, so `main` moves quickly — pull often.
 
 ## Why "Multica"?
 
-**Mul**tiplexed **I**nformation and **C**omputing **A**gent — a nod to Multics, the 1960s
+**Mult**iplexed **I**nformation and **C**omputing **A**gent — a nod to Multics, the 1960s
 operating system that introduced time-sharing so several people could use one machine as if each
 had it to themselves.
 

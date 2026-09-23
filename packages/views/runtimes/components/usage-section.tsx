@@ -272,7 +272,14 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
       )}
       <CustomPricingBar usage={filtered} />
 
-      <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
+      {/* Stacks below `sm`, matching the Analytics tabs' KPI rows. Three
+          fixed columns leave ~70px of content width inside `KpiCard`'s p-5 at
+          a 390px viewport, and a `text-display` value ("960.1M", "$1,234.56")
+          is far wider than that — it painted past the card's right edge
+          instead of wrapping, because a number is one unbreakable token
+          (#7836). `divide-y` carries the separator through the stacked
+          orientation so the row still reads as one grouped card. */}
+      <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <KpiCard
           label={t(
             ($) =>
@@ -913,7 +920,7 @@ function CostByList({
                     aria-label={t(($) => $.usage.cost_by_model_breakdown_aria)}
                     aria-expanded={isOpen}
                     onClick={() => toggle(row.key)}
-                    className="-ml-1 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="-ml-1 shrink-0 rounded-xs p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <ChevronRight
                       className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-90")}

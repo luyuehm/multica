@@ -11,7 +11,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useAuthStore } from "@multica/core/auth";
 import { agentListOptions, memberListOptions } from "@multica/core/workspace/queries";
 import { projectListOptions } from "@multica/core/projects/queries";
-import { canAssignAgent } from "@multica/views/issues/components";
+import { canAssignAgent } from "../../issues/components/pickers/assignee-picker";
 import { api, dispatchReasonCode } from "@multica/core/api";
 import {
   isAgentRuntimeBound as hasAgentRuntime,
@@ -202,6 +202,7 @@ export function seedAcceptedPendingTask(
 export type ChatSendFailureToast =
   | "send_blocked_toast"
   | "runtime_required_toast"
+  | "runtime_access_denied_toast"
   | "send_blocked_budget_exceeded"
   | "send_failed_toast";
 
@@ -211,6 +212,8 @@ export function chatSendFailureToast(reason: string | undefined): ChatSendFailur
       return "send_blocked_toast";
     case "agent_runtime_required":
       return "runtime_required_toast";
+    case "runtime_access_denied":
+      return "runtime_access_denied_toast";
     case "budget_exceeded":
       return "send_blocked_budget_exceeded";
     default:

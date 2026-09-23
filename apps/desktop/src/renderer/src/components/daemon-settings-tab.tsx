@@ -131,7 +131,6 @@ export function DaemonSettingsTab() {
   return (
     <SettingsTab
       title={t(($) => $.desktop.daemon.title)}
-      description={t(($) => $.desktop.daemon.description)}
     >
 
       {status.state === "auth_expired" && (
@@ -243,7 +242,7 @@ export function DaemonSettingsTab() {
             <AlertDialogTitle>Change repos storage location?</AlertDialogTitle>
             <AlertDialogDescription>
               The daemon will store repos and task environments in:{' '}
-              <span className="font-mono text-caption bg-muted/50 px-1.5 py-0.5 rounded break-all">
+              <span className="font-mono text-caption bg-muted/50 px-1.5 py-0.5 rounded-xs break-all">
                 {confirmNewRoot}
               </span>
               . The daemon will be restarted to apply this change. Existing repos at the current
@@ -264,7 +263,6 @@ export function DaemonSettingsTab() {
           not for everyday use. */}
       <SettingsSection
         title={t(($) => $.desktop.daemon.diagnostics_title)}
-        description={t(($) => $.desktop.daemon.diagnostics_description)}
       >
         <SettingsCard>
           <div className="px-4 py-2">

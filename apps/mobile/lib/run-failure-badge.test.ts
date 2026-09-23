@@ -16,6 +16,9 @@ describe("runFailureBadgeLabel", () => {
     expect(runFailureBadgeLabel("environment_prepare_failed")).toBe(
       "Environment setup failed",
     );
+    expect(runFailureBadgeLabel("runtime_access_denied")).toBe(
+      "No runtime access",
+    );
     // Refused by the runtime's cost budget before dispatch. Terser than the
     // chat bubble's "Runtime cost budget reached" because the badge shares a
     // line with the status word and a timestamp.
