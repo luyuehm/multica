@@ -1,0 +1,1 @@
+ALTER TABLE issue_template ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;

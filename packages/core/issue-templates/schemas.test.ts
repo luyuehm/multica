@@ -65,6 +65,16 @@ describe("IssueTemplateSummaryListSchema", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.created_by).toBeNull();
   });
+
+  it("parses archived_at when the server returns it", () => {
+    const result = parseWithFallback(
+      [{ ...validSummary, archived_at: "2026-05-13T00:00:00Z" }],
+      IssueTemplateSummaryListSchema,
+      EMPTY_ISSUE_TEMPLATE_SUMMARY_LIST,
+      { endpoint: "listIssueTemplates" },
+    );
+    expect(result[0]!.archived_at).toBe("2026-05-13T00:00:00Z");
+  });
 });
 
 describe("IssueTemplateDetailSchema", () => {

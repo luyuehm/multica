@@ -120,6 +120,97 @@ func TestIssueTemplateListOmitsContent(t *testing.T) {
 	}
 }
 
+func TestIssueTemplateArchiveUnarchive(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	createReq := map[string]any{
+		"name":        "Archive round trip",
+		"issue_title": "Investigate {{area}} bug",
+	}
+	w := httptest.NewRecorder()
+	testHandler.CreateIssueTemplate(w, newRequest(http.MethodPost, "/api/issue-templates?workspace_id="+testWorkspaceID, createReq))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssueTemplate status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := created["id"].(string)
+	if id == "" {
+		t.Fatalf("created response missing id: %#v", created)
+	}
+	t.Cleanup(func() {
+		req := withURLParam(newRequest(http.MethodDelete, "/api/issue-templates/"+id+"?workspace_id="+testWorkspaceID, nil), "id", id)
+		testHandler.DeleteIssueTemplate(httptest.NewRecorder(), req)
+	})
+
+	w = httptest.NewRecorder()
+	archiveReq := withURLParam(newRequest(http.MethodPost, "/api/issue-templates/"+id+"/archive?workspace_id="+testWorkspaceID, nil), "id", id)
+	testHandler.ArchiveIssueTemplate(w, archiveReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("ArchiveIssueTemplate status = %d body=%s", w.Code, w.Body.String())
+	}
+	var archived map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&archived); err != nil {
+		t.Fatal(err)
+	}
+	if archived["archived_at"] == nil || archived["archived_at"] == "" {
+		t.Fatalf("archived response missing archived_at: %#v", archived)
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.ListIssueTemplates(w, newRequest(http.MethodGet, "/api/issue-templates?workspace_id="+testWorkspaceID, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListIssueTemplates(status without archived) = %d body=%s", w.Code, w.Body.String())
+	}
+	var activeList []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&activeList); err != nil {
+		t.Fatal(err)
+	}
+	if containsTemplateID(activeList, id) {
+		t.Fatalf("active list should hide archived template, got %#v", activeList)
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.ListIssueTemplates(w, newRequest(http.MethodGet, "/api/issue-templates?workspace_id="+testWorkspaceID+"&include_archived=true", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("ListIssueTemplates(include archived) status = %d body=%s", w.Code, w.Body.String())
+	}
+	var archivedList []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&archivedList); err != nil {
+		t.Fatal(err)
+	}
+	if !containsTemplateID(archivedList, id) {
+		t.Fatalf("include_archived list should include template, got %#v", archivedList)
+	}
+
+	w = httptest.NewRecorder()
+	unarchiveReq := withURLParam(newRequest(http.MethodPost, "/api/issue-templates/"+id+"/unarchive?workspace_id="+testWorkspaceID, nil), "id", id)
+	testHandler.UnarchiveIssueTemplate(w, unarchiveReq)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UnarchiveIssueTemplate status = %d body=%s", w.Code, w.Body.String())
+	}
+	var restored map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored["archived_at"] != nil {
+		t.Fatalf("restored response should omit archived_at, got %#v", restored)
+	}
+}
+
+func containsTemplateID(items []map[string]any, id string) bool {
+	for _, item := range items {
+		if item["id"] == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestIssueTemplateValidation(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

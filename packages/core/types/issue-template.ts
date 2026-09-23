@@ -8,6 +8,7 @@ export interface IssueTemplate {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface IssueTemplateSummary {
@@ -19,6 +20,7 @@ export interface IssueTemplateSummary {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 export interface CreateIssueTemplateRequest {

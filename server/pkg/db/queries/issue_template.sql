@@ -1,9 +1,10 @@
 -- Issue Template CRUD
 
 -- name: ListIssueTemplateSummariesByWorkspace :many
-SELECT id, workspace_id, name, issue_title, config, created_by, created_at, updated_at
+SELECT id, workspace_id, name, issue_title, config, created_by, created_at, updated_at, archived_at
 FROM issue_template
 WHERE workspace_id = $1
+  AND (sqlc.arg('include_archived')::bool OR archived_at IS NULL)
 ORDER BY name ASC;
 
 -- name: GetIssueTemplateInWorkspace :one
@@ -28,3 +29,13 @@ RETURNING *;
 
 -- name: DeleteIssueTemplate :exec
 DELETE FROM issue_template WHERE id = $1;
+
+-- name: ArchiveIssueTemplate :one
+UPDATE issue_template SET archived_at = now(), updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING *;
+
+-- name: UnarchiveIssueTemplate :one
+UPDATE issue_template SET archived_at = NULL, updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING *;

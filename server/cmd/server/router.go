@@ -2291,6 +2291,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetIssueTemplate)
 					r.Put("/", h.UpdateIssueTemplate)
 					r.Delete("/", h.DeleteIssueTemplate)
+					r.Post("/archive", h.ArchiveIssueTemplate)
+					r.Post("/unarchive", h.UnarchiveIssueTemplate)
 				})
 			})
 

@@ -10,6 +10,7 @@ const IssueTemplateSummarySchema = z.object({
   created_by: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  archived_at: z.string().nullable().optional(),
 });
 
 export const IssueTemplateSummaryListSchema = z.array(IssueTemplateSummarySchema);
@@ -24,6 +25,7 @@ export const IssueTemplateDetailSchema = z.object({
   created_by: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  archived_at: z.string().nullable().optional(),
 });
 
 export const EMPTY_ISSUE_TEMPLATE_SUMMARY_LIST: IssueTemplateSummary[] = [];

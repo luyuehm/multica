@@ -11,10 +11,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveIssueTemplate = `-- name: ArchiveIssueTemplate :one
+UPDATE issue_template SET archived_at = now(), updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at, archived_at
+`
+
+type ArchiveIssueTemplateParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) ArchiveIssueTemplate(ctx context.Context, arg ArchiveIssueTemplateParams) (IssueTemplate, error) {
+	row := q.db.QueryRow(ctx, archiveIssueTemplate, arg.ID, arg.WorkspaceID)
+	var i IssueTemplate
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.IssueTitle,
+		&i.IssueContent,
+		&i.Config,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
 const createIssueTemplate = `-- name: CreateIssueTemplate :one
 INSERT INTO issue_template (workspace_id, name, issue_title, issue_content, config, created_by)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at
+RETURNING id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at, archived_at
 `
 
 type CreateIssueTemplateParams struct {
@@ -46,6 +75,7 @@ func (q *Queries) CreateIssueTemplate(ctx context.Context, arg CreateIssueTempla
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -60,7 +90,7 @@ func (q *Queries) DeleteIssueTemplate(ctx context.Context, id pgtype.UUID) error
 }
 
 const getIssueTemplateInWorkspace = `-- name: GetIssueTemplateInWorkspace :one
-SELECT id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at
+SELECT id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at, archived_at
 FROM issue_template
 WHERE id = $1 AND workspace_id = $2
 `
@@ -83,17 +113,24 @@ func (q *Queries) GetIssueTemplateInWorkspace(ctx context.Context, arg GetIssueT
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
 
 const listIssueTemplateSummariesByWorkspace = `-- name: ListIssueTemplateSummariesByWorkspace :many
 
-SELECT id, workspace_id, name, issue_title, config, created_by, created_at, updated_at
+SELECT id, workspace_id, name, issue_title, config, created_by, created_at, updated_at, archived_at
 FROM issue_template
 WHERE workspace_id = $1
+  AND ($2::bool OR archived_at IS NULL)
 ORDER BY name ASC
 `
+
+type ListIssueTemplateSummariesByWorkspaceParams struct {
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	IncludeArchived bool        `json:"include_archived"`
+}
 
 type ListIssueTemplateSummariesByWorkspaceRow struct {
 	ID          pgtype.UUID        `json:"id"`
@@ -104,11 +141,12 @@ type ListIssueTemplateSummariesByWorkspaceRow struct {
 	CreatedBy   pgtype.UUID        `json:"created_by"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ArchivedAt  pgtype.Timestamptz `json:"archived_at"`
 }
 
 // Issue Template CRUD
-func (q *Queries) ListIssueTemplateSummariesByWorkspace(ctx context.Context, workspaceID pgtype.UUID) ([]ListIssueTemplateSummariesByWorkspaceRow, error) {
-	rows, err := q.db.Query(ctx, listIssueTemplateSummariesByWorkspace, workspaceID)
+func (q *Queries) ListIssueTemplateSummariesByWorkspace(ctx context.Context, arg ListIssueTemplateSummariesByWorkspaceParams) ([]ListIssueTemplateSummariesByWorkspaceRow, error) {
+	rows, err := q.db.Query(ctx, listIssueTemplateSummariesByWorkspace, arg.WorkspaceID, arg.IncludeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +163,7 @@ func (q *Queries) ListIssueTemplateSummariesByWorkspace(ctx context.Context, wor
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ArchivedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -136,6 +175,35 @@ func (q *Queries) ListIssueTemplateSummariesByWorkspace(ctx context.Context, wor
 	return items, nil
 }
 
+const unarchiveIssueTemplate = `-- name: UnarchiveIssueTemplate :one
+UPDATE issue_template SET archived_at = NULL, updated_at = now()
+WHERE id = $1 AND workspace_id = $2
+RETURNING id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at, archived_at
+`
+
+type UnarchiveIssueTemplateParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) UnarchiveIssueTemplate(ctx context.Context, arg UnarchiveIssueTemplateParams) (IssueTemplate, error) {
+	row := q.db.QueryRow(ctx, unarchiveIssueTemplate, arg.ID, arg.WorkspaceID)
+	var i IssueTemplate
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.IssueTitle,
+		&i.IssueContent,
+		&i.Config,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+	)
+	return i, err
+}
+
 const updateIssueTemplate = `-- name: UpdateIssueTemplate :one
 UPDATE issue_template SET
     name = COALESCE($2, name),
@@ -144,7 +212,7 @@ UPDATE issue_template SET
     config = COALESCE($5, config),
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at
+RETURNING id, workspace_id, name, issue_title, issue_content, config, created_by, created_at, updated_at, archived_at
 `
 
 type UpdateIssueTemplateParams struct {
@@ -174,6 +242,7 @@ func (q *Queries) UpdateIssueTemplate(ctx context.Context, arg UpdateIssueTempla
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
