@@ -34,6 +34,8 @@ An autopilot is enabled by default after saving; **Run now** manually executes t
 
 **Run only** requires the runtime to be available at trigger time; otherwise the run shows as skipped, and no waiting issue is left behind.
 
+In **Create issue** mode you can set an **issue title template** and an **issue body template** so every auto-created issue follows a standard structure. The body template becomes the issue body skeleton in place of the raw description; `{{date}}` renders the trigger date (in the trigger timezone, `YYYY-MM-DD`) and `{{description}}` renders the autopilot's own instruction. Any other `{{...}}` token is rejected when the template is saved. When no body template is set, the issue body is the description verbatim plus the system footer — the behavior is unchanged.
+
 ## Run on a schedule
 
 The schedule editor lets you pick the run time, repeat days, time window, and timezone, and previews the upcoming run times. One autopilot can have multiple schedules; enabling or disabling an individual trigger is done with the CLI's `autopilot trigger-update` — see [Using the CLI](/cli) for the parameters.

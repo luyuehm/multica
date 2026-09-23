@@ -47,6 +47,7 @@ type AutopilotResponse struct {
 	PauseReason        *string `json:"pause_reason"`
 	ExecutionMode      string  `json:"execution_mode"`
 	IssueTitleTemplate *string `json:"issue_title_template"`
+	IssueBodyTemplate  *string `json:"issue_body_template"`
 	CreatedByType      string  `json:"created_by_type"`
 	CreatedByID        string  `json:"created_by_id"`
 	LastRunAt          *string `json:"last_run_at"`
@@ -210,6 +211,7 @@ func autopilotToResponse(a db.Autopilot, subscribers []db.AutopilotSubscriber) A
 		PauseReason:        textToPtr(a.PauseReason),
 		ExecutionMode:      a.ExecutionMode,
 		IssueTitleTemplate: textToPtr(a.IssueTitleTemplate),
+		IssueBodyTemplate:  textToPtr(a.IssueBodyTemplate),
 		CreatedByType:      a.CreatedByType,
 		CreatedByID:        uuidToString(a.CreatedByID),
 		LastRunAt:          timestampToPtr(a.LastRunAt),
@@ -366,6 +368,7 @@ type CreateAutopilotRequest struct {
 	AssigneeID         string            `json:"assignee_id"`
 	ExecutionMode      string            `json:"execution_mode"`
 	IssueTitleTemplate *string           `json:"issue_title_template"`
+	IssueBodyTemplate  *string           `json:"issue_body_template"`
 	Subscribers        []SubscriberInput `json:"subscribers"`
 }
 
@@ -378,6 +381,7 @@ type UpdateAutopilotRequest struct {
 	Status             *string `json:"status"`
 	ExecutionMode      *string `json:"execution_mode"`
 	IssueTitleTemplate *string `json:"issue_title_template"`
+	IssueBodyTemplate  *string `json:"issue_body_template"`
 	// Wholesale replacement when present; omit to leave subscribers untouched.
 	Subscribers []SubscriberInput `json:"subscribers"`
 }
@@ -833,6 +837,12 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if req.IssueBodyTemplate != nil {
+		if err := service.ValidateIssueBodyTemplate(*req.IssueBodyTemplate); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	workspaceID := h.resolveWorkspaceID(r)
 	// Everything this handler stamps — created_by, the v1 rule version, the
@@ -910,6 +920,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		CreatedByID:        actor.UserID,
 		Description:        ptrToText(req.Description),
 		IssueTitleTemplate: ptrToText(req.IssueTitleTemplate),
+		IssueBodyTemplate:  ptrToText(req.IssueBodyTemplate),
 		ProjectID:          projectID,
 	})
 	if err != nil {
@@ -1070,6 +1081,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		Description:        prev.Description,
 		AssigneeID:         prev.AssigneeID,
 		IssueTitleTemplate: prev.IssueTitleTemplate,
+		IssueBodyTemplate:  prev.IssueBodyTemplate,
 		ProjectID:          prev.ProjectID,
 	}
 	if req.Title != nil {
@@ -1092,6 +1104,15 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		params.IssueTitleTemplate = ptrToText(req.IssueTitleTemplate)
+	}
+	if _, ok := rawFields["issue_body_template"]; ok {
+		if req.IssueBodyTemplate != nil {
+			if err := service.ValidateIssueBodyTemplate(*req.IssueBodyTemplate); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		params.IssueBodyTemplate = ptrToText(req.IssueBodyTemplate)
 	}
 	if _, ok := rawFields["project_id"]; ok {
 		projectID, ok := h.parseAutopilotProjectID(w, r, req.ProjectID, prev.WorkspaceID)
@@ -1285,8 +1306,10 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 //   - description — the product surfaces this as the run PROMPT, i.e. the task
 //     instruction itself, so editing it must transfer responsibility (the gap Elon
 //     flagged: a fresh publisher of the instructions is the accountable human);
-//   - issue_title_template — templates the created issue in create_issue mode; part
-//     of the instruction / output spec the run produces.
+//   - issue_title_template — templates the created issue title in create_issue mode;
+//     part of the instruction / output spec the run produces.
+//   - issue_body_template — templates the created issue body in create_issue mode;
+//     part of the instruction / output spec the run produces.
 //
 // Deliberately NOT substantive (cosmetic / routing — they change neither the
 // instruction nor the executor): title (display label) and project_id (which project
@@ -1302,7 +1325,8 @@ func autopilotRuleSubstantiveChange(prev, next db.Autopilot) bool {
 		prev.Status != next.Status ||
 		prev.ExecutionMode != next.ExecutionMode ||
 		prev.Description != next.Description ||
-		prev.IssueTitleTemplate != next.IssueTitleTemplate
+		prev.IssueTitleTemplate != next.IssueTitleTemplate ||
+		prev.IssueBodyTemplate != next.IssueBodyTemplate
 }
 
 // recordAutopilotRuleVersion appends one rule-version snapshot for a substantive

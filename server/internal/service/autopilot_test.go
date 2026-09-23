@@ -296,3 +296,214 @@ func TestValidateIssueTitleTemplate(t *testing.T) {
 		})
 	}
 }
+
+// TestBuildIssueDescription_NoTemplatePreservesByteIdentical locks the backward
+// compatibility contract: with no IssueBodyTemplate set, buildIssueDescription
+// must produce exactly what the pre-RIC-947 implementation produced. We build
+// the expected string by hand following the legacy shape so any accidental
+// change to the un-templated path fails loudly.
+func TestBuildIssueDescription_NoTemplatePreservesByteIdentical(t *testing.T) {
+	s := &AutopilotService{}
+	ap := db.Autopilot{Description: pgtype.Text{String: "do the thing", Valid: true}}
+	run := db.AutopilotRun{
+		Source:      "schedule",
+		TriggeredAt: pgtype.Timestamptz{Time: time.Date(2026, 5, 26, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+	triggeredAt := formatAutopilotRunTimestamp(run, "UTC")
+
+	want := "do the thing\n\n---\n*Autopilot run triggered at " + triggeredAt + ". After starting work, rename this issue to accurately reflect what you are doing.*"
+	got := s.buildIssueDescription(ap, run, "UTC")
+	if got.String != want {
+		t.Fatalf("no-template output changed:\n got: %q\nwant: %q", got.String, want)
+	}
+}
+
+// TestBuildIssueDescription_EmptyTemplatePreservesByteIdentical covers the
+// explicitly-empty-but-valid template case, which must also fall back to the
+// legacy behavior (an empty string template is treated as "no template").
+func TestBuildIssueDescription_EmptyTemplatePreservesByteIdentical(t *testing.T) {
+	s := &AutopilotService{}
+	ap := db.Autopilot{
+		Description:       pgtype.Text{String: "do the thing", Valid: true},
+		IssueBodyTemplate: pgtype.Text{String: "", Valid: true},
+	}
+	run := db.AutopilotRun{
+		Source:      "schedule",
+		TriggeredAt: pgtype.Timestamptz{Time: time.Date(2026, 5, 26, 0, 0, 0, 0, time.UTC), Valid: true},
+	}
+	triggeredAt := formatAutopilotRunTimestamp(run, "UTC")
+
+	want := "do the thing\n\n---\n*Autopilot run triggered at " + triggeredAt + ". After starting work, rename this issue to accurately reflect what you are doing.*"
+	got := s.buildIssueDescription(ap, run, "UTC")
+	if got.String != want {
+		t.Fatalf("empty-template output changed:\n got: %q\nwant: %q", got.String, want)
+	}
+}
+
+// TestBuildIssueDescription_WithBodyTemplate verifies the new templated path:
+// the rendered template becomes the body skeleton, {{date}} and {{description}}
+// are interpolated, and the system footer is still appended.
+func TestBuildIssueDescription_WithBodyTemplate(t *testing.T) {
+	s := &AutopilotService{}
+	ap := db.Autopilot{
+		Description: pgtype.Text{String: "produce the daily metrics report", Valid: true},
+		IssueBodyTemplate: pgtype.Text{
+			String: "## 目标\n完成 {{description}}。\n\n## 日期\n{{date}}",
+			Valid:  true,
+		},
+	}
+	run := db.AutopilotRun{
+		Source:      "schedule",
+		TriggeredAt: pgtype.Timestamptz{Time: time.Date(2026, 5, 26, 23, 30, 0, 0, time.UTC), Valid: true},
+	}
+
+	got := s.buildIssueDescription(ap, run, "Asia/Tokyo")
+	if !strings.Contains(got.String, "## 目标") {
+		t.Fatalf("templated body should include template section: %q", got.String)
+	}
+	if !strings.Contains(got.String, "完成 produce the daily metrics report。") {
+		t.Fatalf("{{description}} should interpolate the autopilot instruction: %q", got.String)
+	}
+	if !strings.Contains(got.String, "## 日期\n2026-05-27") {
+		t.Fatalf("{{date}} should interpolate the trigger date in the trigger timezone: %q", got.String)
+	}
+	if !strings.Contains(got.String, "Autopilot run triggered at") {
+		t.Fatalf("system footer must still be appended: %q", got.String)
+	}
+}
+
+// TestBuildIssueDescription_WithBodyTemplateKeepsWebhookBlock verifies the
+// webhook payload block is appended after the templated skeleton, same as the
+// legacy path appends it after the raw description.
+func TestBuildIssueDescription_WithBodyTemplateKeepsWebhookBlock(t *testing.T) {
+	s := &AutopilotService{}
+	ap := db.Autopilot{
+		Description: pgtype.Text{String: "watch PRs", Valid: true},
+		IssueBodyTemplate: pgtype.Text{
+			String: "## 目标\n{{description}}",
+			Valid:  true,
+		},
+	}
+	payload := []byte(`{"event":"github.pull_request.opened","eventPayload":{"number":7}}`)
+	run := db.AutopilotRun{Source: "webhook", TriggerPayload: payload, TriggeredAt: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}}
+
+	got := s.buildIssueDescription(ap, run, "UTC")
+	if !strings.Contains(got.String, "Webhook event: github.pull_request.opened") {
+		t.Fatalf("templated body should still include webhook block: %q", got.String)
+	}
+	idxItalic := strings.Index(got.String, "*Autopilot run triggered")
+	idxWebhook := strings.Index(got.String, "Webhook event")
+	if idxItalic < 0 || idxWebhook < 0 || idxItalic > idxWebhook {
+		t.Fatalf("italic line should appear before webhook block: %q", got.String)
+	}
+}
+
+// TestRenderIssueBodyTemplate covers the interpolation layer in isolation:
+// {{date}} substitution, {{description}} substitution, whitespace-padded forms,
+// and passthrough of unknown tokens (the handler validates before save).
+func TestRenderIssueBodyTemplate(t *testing.T) {
+	s := &AutopilotService{}
+	run := db.AutopilotRun{TriggeredAt: pgtype.Timestamptz{Time: time.Date(2026, 5, 26, 23, 30, 0, 0, time.UTC), Valid: true}}
+
+	cases := []struct {
+		name   string
+		ap     db.Autopilot
+		expect string
+	}{
+		{
+			name: "date and description substituted",
+			ap: db.Autopilot{
+				Description:       pgtype.Text{String: "the instruction", Valid: true},
+				IssueBodyTemplate: pgtype.Text{String: "## 目标\n{{description}}\n## 日期\n{{date}}", Valid: true},
+			},
+			expect: "## 目标\nthe instruction\n## 日期\n2026-05-26",
+		},
+		{
+			name: "whitespace-padded tokens substituted",
+			ap: db.Autopilot{
+				Description:       pgtype.Text{String: "the instruction", Valid: true},
+				IssueBodyTemplate: pgtype.Text{String: "{{ description }} / {{ date }}", Valid: true},
+			},
+			expect: "the instruction / 2026-05-26",
+		},
+		{
+			name: "unknown token passes through",
+			ap: db.Autopilot{
+				Description:       pgtype.Text{String: "the instruction", Valid: true},
+				IssueBodyTemplate: pgtype.Text{String: "{{description}} {{trigger_source}}", Valid: true},
+			},
+			expect: "the instruction {{trigger_source}}",
+		},
+		{
+			name: "no tokens returns template verbatim",
+			ap: db.Autopilot{
+				Description:       pgtype.Text{String: "the instruction", Valid: true},
+				IssueBodyTemplate: pgtype.Text{String: "static body", Valid: true},
+			},
+			expect: "static body",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := s.renderIssueBodyTemplate(tc.ap, run, "UTC"); got != tc.expect {
+				t.Fatalf("renderIssueBodyTemplate = %q, want %q", got, tc.expect)
+			}
+		})
+	}
+}
+
+// TestValidateIssueBodyTemplate locks down what create/update accept for the
+// body template: it extends the title rule set with {{description}}.
+func TestValidateIssueBodyTemplate(t *testing.T) {
+	t.Run("accepts empty template", func(t *testing.T) {
+		if err := ValidateIssueBodyTemplate(""); err != nil {
+			t.Fatalf("empty template must be valid: %v", err)
+		}
+	})
+	t.Run("accepts plain text", func(t *testing.T) {
+		if err := ValidateIssueBodyTemplate("daily report"); err != nil {
+			t.Fatalf("plain text must be valid: %v", err)
+		}
+	})
+	t.Run("accepts {{date}}", func(t *testing.T) {
+		if err := ValidateIssueBodyTemplate("## 日期\n{{date}}"); err != nil {
+			t.Fatalf("{{date}} must be valid: %v", err)
+		}
+	})
+	t.Run("accepts {{description}}", func(t *testing.T) {
+		if err := ValidateIssueBodyTemplate("## 目标\n{{description}}"); err != nil {
+			t.Fatalf("{{description}} must be valid: %v", err)
+		}
+	})
+	t.Run("accepts {{ date }} with whitespace", func(t *testing.T) {
+		if err := ValidateIssueBodyTemplate("{{ description }}"); err != nil {
+			t.Fatalf("{{ description }} must be valid: %v", err)
+		}
+	})
+
+	rejections := []struct {
+		name        string
+		tmpl        string
+		nameInError string
+	}{
+		{"go template style", "probe — {{.TriggeredAt}}", ".TriggeredAt"},
+		{"mustache style unknown variable", "probe — {{trigger_id}}", "trigger_id"},
+		{"datetime not yet supported", "probe — {{datetime}}", "datetime"},
+		{"empty placeholder", "probe — {{}}", ""},
+		{"mixed valid + invalid still fails", "## 目标\n{{description}} {{trigger_source}}", "trigger_source"},
+	}
+	for _, tc := range rejections {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateIssueBodyTemplate(tc.tmpl)
+			if err == nil {
+				t.Fatalf("expected rejection for %q", tc.tmpl)
+			}
+			if !strings.Contains(err.Error(), "unknown body template variable") {
+				t.Fatalf("error should mention unknown body template variable: %v", err)
+			}
+			if tc.nameInError != "" && !strings.Contains(err.Error(), tc.nameInError) {
+				t.Fatalf("error should name the offending token %q: %v", tc.nameInError, err)
+			}
+		})
+	}
+}

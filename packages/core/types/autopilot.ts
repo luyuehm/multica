@@ -37,6 +37,11 @@ export interface Autopilot {
   pause_reason?: string | null;
   execution_mode: AutopilotExecutionMode;
   issue_title_template: string | null;
+  // Body skeleton applied in create_issue mode; null/omitted keeps the legacy
+  // verbatim-description behavior. Supported tokens: {{date}}, {{description}}.
+  // Absent on older (pre-RIC-947) servers — treat undefined as "no template",
+  // never as an error.
+  issue_body_template?: string | null;
   created_by_type: string;
   created_by_id: string;
   last_run_at: string | null;
@@ -163,6 +168,7 @@ export interface CreateAutopilotRequest {
   assignee_id: string;
   execution_mode: AutopilotExecutionMode;
   issue_title_template?: string;
+  issue_body_template?: string;
   subscribers?: AutopilotSubscriberInput[];
 }
 
@@ -177,6 +183,7 @@ export interface UpdateAutopilotRequest {
   status?: AutopilotStatus;
   execution_mode?: AutopilotExecutionMode;
   issue_title_template?: string | null;
+  issue_body_template?: string | null;
   // When present, fully replaces the autopilot's subscriber template;
   // omit to leave it untouched.
   subscribers?: AutopilotSubscriberInput[];

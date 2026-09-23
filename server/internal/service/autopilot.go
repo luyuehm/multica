@@ -1846,10 +1846,19 @@ func autopilotTriggerLocation(timezone string) (*time.Location, string) {
 // it understands the actual work. For webhook-sourced runs, also appends
 // a payload section so the agent has the event context inline (otherwise
 // the agent only sees the issue body, never the run's trigger_payload).
+//
+// When the autopilot defines an IssueBodyTemplate, the rendered template
+// replaces the raw description as the body skeleton; the system footer and
+// webhook payload sections are appended unchanged. With no template the
+// output is byte-identical to the legacy behavior (backward compatible).
 func (s *AutopilotService) buildIssueDescription(ap db.Autopilot, run db.AutopilotRun, triggerTimezone string) pgtype.Text {
 	triggeredAt := formatAutopilotRunTimestamp(run, triggerTimezone)
 	var b strings.Builder
-	b.WriteString(ap.Description.String)
+	if ap.IssueBodyTemplate.Valid && ap.IssueBodyTemplate.String != "" {
+		b.WriteString(s.renderIssueBodyTemplate(ap, run, triggerTimezone))
+	} else {
+		b.WriteString(ap.Description.String)
+	}
 	b.WriteString("\n\n---\n*Autopilot run triggered at ")
 	b.WriteString(triggeredAt)
 	b.WriteString(". After starting work, rename this issue to accurately reflect what you are doing.*")
@@ -1953,6 +1962,66 @@ func ValidateIssueTitleTemplate(tmpl string) error {
 
 func isSupportedIssueTitleVariable(name string) bool {
 	for _, v := range SupportedIssueTitleTemplateVariables {
+		if name == v {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportedIssueBodyTemplateVariables enumerates the placeholders that
+// renderIssueBodyTemplate will substitute in an autopilot issue body
+// template. It extends the title set with {{description}}, which is replaced
+// by the autopilot's own instruction so a template can frame the agent
+// prompt inside a standard issue skeleton. Keep this in sync with the
+// substitution logic below.
+var SupportedIssueBodyTemplateVariables = []string{"date", "description"}
+
+// renderIssueBodyTemplate substitutes supported {{name}} placeholders in an
+// autopilot issue body template. {{date}} renders the trigger date (same
+// value interpolateTemplate uses for titles); {{description}} renders the
+// autopilot's own working instruction. Unknown {{...}} tokens pass through
+// unchanged so validation at save time is the single gate, mirroring the
+// title-template behavior.
+func (s *AutopilotService) renderIssueBodyTemplate(ap db.Autopilot, run db.AutopilotRun, triggerTimezone string) string {
+	tmpl := ap.IssueBodyTemplate.String
+	triggerDate := formatAutopilotRunDate(run, triggerTimezone)
+	return issueTitleTemplateTokenRE.ReplaceAllStringFunc(tmpl, func(match string) string {
+		name := strings.TrimSpace(match[2 : len(match)-2])
+		switch name {
+		case "date":
+			return triggerDate
+		case "description":
+			return ap.Description.String
+		default:
+			return match
+		}
+	})
+}
+
+// ValidateIssueBodyTemplate rejects templates that contain any {{...}} token
+// other than the supported set. An empty template is valid (buildIssueDescription
+// falls back to the raw description). The error message names the first
+// offending token to keep API/CLI feedback actionable.
+func ValidateIssueBodyTemplate(tmpl string) error {
+	if tmpl == "" {
+		return nil
+	}
+	for _, m := range issueTitleTemplateTokenRE.FindAllStringSubmatch(tmpl, -1) {
+		name := m[1]
+		if !isSupportedIssueBodyVariable(name) {
+			return fmt.Errorf(
+				"unknown body template variable %q; supported: {{%s}}",
+				name,
+				strings.Join(SupportedIssueBodyTemplateVariables, "}}, {{"),
+			)
+		}
+	}
+	return nil
+}
+
+func isSupportedIssueBodyVariable(name string) bool {
+	for _, v := range SupportedIssueBodyTemplateVariables {
 		if name == v {
 			return true
 		}
