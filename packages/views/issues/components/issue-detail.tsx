@@ -104,15 +104,15 @@ import { WakeupsSection } from "./wakeups-section";
 import { QuickActionsSection } from "./quick-actions-section";
 import { PluginPanelSection } from "../../plugins";
 import { PullRequestsSection } from "./pull-requests-section";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGitHubSettings } from "@multica/core/github";
-import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useRecentContextStore } from "@multica/core/chat";
 import { useModalStore } from "@multica/core/modals";
-import { issueListOptions, issueDetailOptions, childIssuesOptions, childIssueProgressOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
+import { issueKeys, issueListOptions, issueDetailOptions, childIssuesOptions, childIssueProgressOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
@@ -1249,6 +1249,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const locale = useLocale();
   const timeAgo = useTimeAgo();
   const id = issueId;
+  // Still needed by the fork's missing-highlight timeline refetch below.
+  // `backOrReplace` is gone: upstream extracted the inline not-found branch
+  // into <IssueNotFound />, which owns its own navigation.
+  const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const paths = useWorkspacePaths();
   const openModal = useModalStore((state) => state.open);
@@ -1456,6 +1460,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     });
   }, []);
   const didHighlightRef = useRef<string | null>(null);
+  const requestedMissingHighlightRef = useRef<string | null>(null);
   // Last seen highlightRequestToken; a bump re-arms didHighlightRef so the
   // landing effect below replays on an already-mounted detail.
   const lastHighlightRequestTokenRef = useRef(highlightRequestToken);
@@ -1993,6 +1998,26 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }, [allChildrenSelected, childIssueIds, deselectIds, selectIds]);
 
   const loading = issueLoading;
+
+  // Inbox deep-links can reopen an issue whose timeline cache is "fresh"
+  // under the app-wide staleTime: Infinity defaults, but still missing the
+  // newly referenced comment. Detect that gap and force one authoritative
+  // refetch so the highlighted comment can appear without restarting.
+  useEffect(() => {
+    if (!highlightCommentId) {
+      requestedMissingHighlightRef.current = null;
+      return;
+    }
+    if (loading || timelineLoading) return;
+    if (timeline.some((entry) => entry.id === highlightCommentId)) {
+      requestedMissingHighlightRef.current = null;
+      return;
+    }
+    const requestKey = `${id}:${highlightCommentId}`;
+    if (requestedMissingHighlightRef.current === requestKey) return;
+    requestedMissingHighlightRef.current = requestKey;
+    qc.invalidateQueries({ queryKey: issueKeys.timeline(id) });
+  }, [highlightCommentId, id, loading, qc, timeline, timelineLoading]);
 
   // Deep-link landing. Semantically equivalent to navigating to
   // `#comment-${id}`: find the element with that id, scrollIntoView it.

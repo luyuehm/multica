@@ -11,7 +11,8 @@ WITH base AS MATERIALIZED (
    WHERE ft.id=w.filter_task_id AND ft.issue_id=w.issue_id AND fa.id=ANY(@agent_ids::uuid[])) THEN w.filter_task_id END AS filter_task_id,
   w.interval_seconds,w.cron_expression,w.timezone,
   w.next_fire_at,w.enabled,w.revision,w.disabled_at,w.last_task_id,w.last_error,w.created_at,
-  (i.status IN ('done','cancelled') OR EXISTS(SELECT 1 FROM issue_status s WHERE s.workspace_id=i.workspace_id AND s.key=i.status AND s.category IN ('done','closed'))) AS issue_closed,
+  -- 'archive' is the fork's closed-lifecycle status (#39); it has no catalog row.
+  (i.status IN ('done','cancelled','archive') OR EXISTS(SELECT 1 FROM issue_status s WHERE s.workspace_id=i.workspace_id AND s.key=i.status AND s.category IN ('done','closed'))) AS issue_closed,
   COALESCE((w.created_by= @member_id::uuid OR @is_admin::boolean),false) AS can_manage,
   COALESCE(r.active_runs,0)::int AS active_runs
  FROM issue_wakeup w

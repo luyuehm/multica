@@ -253,6 +253,7 @@ type ContentEditorProps = ContentEditorBaseProps & ContentEditorValueProps;
 
 interface ContentEditorRef {
   getMarkdown: () => string;
+  setMarkdown: (markdown: string) => void;
   clearContent: () => void;
   focus: () => void;
   /**
@@ -903,6 +904,23 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
       // placeholder no longer serialises at all, which is strictly stronger
       // than scrubbing it back out afterwards.
       getMarkdown: () => editor?.getMarkdown() ?? "",
+      setMarkdown: (markdown: string) => {
+        editor?.commands.setContent(
+          preprocessMarkdown(markdown, {
+            cdnDomain: configStore.getState().cdnDomain,
+          }),
+          { contentType: "markdown" },
+        );
+        // Normalized the same way the debounced `onUpdate` path does, so
+        // seeding a template does not immediately re-emit as a user edit.
+        // `base` is whatever the editor was showing before this imperative
+        // replace; the new markdown becomes the base for subsequent edits.
+        const base = documentBaseRef.current;
+        const normalized = normalizeMarkdown(markdown);
+        documentBaseRef.current = normalized;
+        lastEmittedRef.current = normalized;
+        onUpdateRef.current?.(normalized, base);
+      },
       clearContent: () => {
         editor?.commands.clearContent();
       },

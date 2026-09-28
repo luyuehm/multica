@@ -404,6 +404,31 @@ WHERE workspace_id = sqlc.arg(workspace_id)
   AND duplicate_of_issue_id = sqlc.arg(issue_id)::uuid
   AND NOT COALESCE(id = ANY(sqlc.arg(excluded_issue_ids)::uuid[]), false)
 RETURNING *;
+-- name: AdvanceIssueStatusIfActive :one
+-- Conditional status write for asynchronous (webhook/system) advancement:
+-- fires only while the issue is still active, so a snapshot read racing a
+-- concurrent archive (fork status #39) / done / cancel cannot resurrect or
+-- double-advance it. No rows = a concurrent writer settled the issue first;
+-- callers skip their side effects. The SET clause mirrors UpdateIssueStatus
+-- so an advanced issue is repositioned and its revision bumped like any other
+-- status write.
+UPDATE issue AS i SET
+    status = $2,
+    position = CASE WHEN i.status IS DISTINCT FROM $2 THEN (
+        SELECT COALESCE(MIN(target.position), 0) - 1
+        FROM issue AS target
+        WHERE target.workspace_id = i.workspace_id
+          AND target.status = $2
+    ) ELSE i.position END,
+    revision = i.revision + CASE WHEN i.status IS DISTINCT FROM $2 THEN 1 ELSE 0 END,
+    last_activity_at = CASE WHEN i.status IS DISTINCT FROM $2
+        THEN GREATEST(COALESCE(i.last_activity_at, i.updated_at), now())
+        ELSE i.last_activity_at
+    END,
+    updated_at = now()
+WHERE i.id = $1 AND i.workspace_id = $3
+  AND i.status NOT IN ('done', 'cancelled', 'archive')
+RETURNING i.*;
 
 -- name: CreateIssueWithOrigin :one
 INSERT INTO issue (

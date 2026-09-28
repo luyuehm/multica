@@ -156,6 +156,18 @@ describe("failureReasonLabel", () => {
     );
   });
 
+  // A deferred fallback task that comes due against a spent runtime cost
+  // budget is failed with this reason rather than promoted. Without a label
+  // the execution log printed the wire value at the person who set the budget.
+  it("names the budget refusal that retires a due deferred task", () => {
+    expect(failureReasonLabel("budget_exceeded", enT)).toBe(
+      "Runtime cost budget reached",
+    );
+    expect(failureReasonLabel("budget_exceeded", fixedT("zh-Hans"))).toBe(
+      "运行时费用额度已达上限",
+    );
+  });
+
   it("maps runtime access denial to actionable recovery copy", () => {
     const label = failureReasonLabel("runtime_access_denied", enT);
     expect(label).toMatch(/make the runtime public/i);

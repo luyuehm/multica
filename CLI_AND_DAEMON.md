@@ -7,13 +7,13 @@ The `multica` CLI connects your local machine to Multica. It handles authenticat
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install multica-ai/tap/multica
+brew install furtherref/tap/multica
 ```
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/multica-ai/multica.git
+git clone https://github.com/furtherref/multica.git
 cd multica
 make build
 cp server/bin/multica /usr/local/bin/multica
@@ -22,7 +22,7 @@ cp server/bin/multica /usr/local/bin/multica
 ### Update
 
 ```bash
-brew upgrade multica-ai/tap/multica
+brew upgrade furtherref/tap/multica
 ```
 
 For install script or manual installs, use:
@@ -44,10 +44,12 @@ export MULTICA_DAEMON_AUTO_UPDATE=true
 multica update
 ```
 
-The metadata mirror must serve `/repos/multica-ai/multica/releases/latest` and
-`/repos/multica-ai/multica/releases/tags/<tag>`. The artifact mirror must serve
+The metadata mirror must serve `/repos/furtherref/multica/releases/latest` and
+`/repos/furtherref/multica/releases/tags/<tag>`. The artifact mirror must serve
 `/<tag>/<asset-name>` and preserve the published `checksums.txt` contents.
 When these variables are unset, the GitHub defaults remain unchanged.
+
+> **Behind a shared egress IP (NAT / forward proxy)?** Release lookups call the GitHub API, which is rate-limited to **60 requests/hour per IP** for unauthenticated callers. When several daemons (or other tools) share one outbound IP — common on self-hosted servers that reach GitHub through a proxy — that budget is easily exhausted, and `multica update` *and the daemon's automatic self-update* fail with `fetch release metadata: GitHub API returned 403`. Set the `GITHUB_TOKEN` environment variable to raise the limit to **5000/hour scoped to the token** (any token that can read the public release repo works — no scopes required). The daemon reads it at startup, so **restart the daemon after setting it**.
 
 ## Quick Start
 
@@ -290,6 +292,7 @@ Daemon behavior is configured via flags or environment variables:
 | GC Hermes memory TTL (per-agent `memories/`) | — | `MULTICA_GC_HERMES_MEMORY_TTL` | `2160h` (90d; set `0` to disable) |
 | GC Hermes session TTL (per-conversation `state.db`) | — | `MULTICA_GC_HERMES_SESSION_TTL` | `336h` (14d; set `0` to disable) |
 | GC task temp legacy TTL (pre-lock `multica-task-*`) | — | `MULTICA_GC_TASK_TEMP_LEGACY_TTL` | `0` (disabled; set a duration to opt in) |
+| GitHub API token for CLI self-update (see [Update](#update)) | — | `GITHUB_TOKEN` | empty |
 
 #### Workspace garbage collection
 

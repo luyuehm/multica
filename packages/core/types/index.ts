@@ -2,6 +2,12 @@ export type { Issue, IssueStatus, BuiltInIssueStatus, IssuePriority, IssueAssign
   IssueDuplicateOf,
 } from "./issue";
 export type {
+  IssueTemplate,
+  IssueTemplateSummary,
+  CreateIssueTemplateRequest,
+  UpdateIssueTemplateRequest,
+} from "./issue-template";
+export type {
   IssueStatusCategory,
   IssueStatusEntry,
   IssueStatusIcon,
@@ -58,9 +64,16 @@ export type {
   UpdateSkillRequest,
   SetAgentSkillsRequest,
   RuntimeUsage,
+  RuntimeUsageCoverage,
   RuntimeHourlyActivity,
   RuntimeUsageByAgent,
   RuntimeUsageByHour,
+  RuntimeBudgetPeriodKey,
+  RuntimeBudgetPeriod,
+  RuntimeBudgetScope,
+  RuntimeCostBudget,
+  RuntimeBudgetScopeInput,
+  RuntimeCostBudgetInput,
   DashboardUsageDaily,
   DashboardUsageByAgent,
   DashboardAgentRunTime,
@@ -150,6 +163,7 @@ export {
   contentReferencesAttachment,
   stripChannelMediaMarkers,
 } from "./attachment-url";
+export type { OfficeConfig } from "./office";
 export type {
   ChatSession,
   ChatLastMessage,

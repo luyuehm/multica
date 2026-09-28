@@ -52,7 +52,10 @@ import {
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
+  RuntimeUsageCoverageListSchema,
   RuntimeUsageListSchema,
+  RuntimeCostBudgetSchema,
+  EMPTY_RUNTIME_COST_BUDGET,
   SendChatMessageResponseSchema,
   SquadListSchema,
   SquadSchema,
@@ -707,6 +710,20 @@ describe("AgentTaskListSchema", () => {
     expect(parsed[0]?.delivered_comment_ids).toBeUndefined();
   });
 
+  it("keeps the UTC pricing date on usage slices and tolerates its absence", () => {
+    const parsed = AgentTaskListSchema.parse([
+      {
+        ...task,
+        usage: [
+          { pricing_date: "2026-09-03", provider: "copilot", model: "gpt-5.6-sol", input_tokens: 1 },
+          { provider: "copilot", model: "gpt-5.6-sol", input_tokens: 1 },
+        ],
+      },
+    ]);
+    expect(parsed[0]?.usage?.[0]?.pricing_date).toBe("2026-09-03");
+    expect(parsed[0]?.usage?.[1]?.pricing_date).toBeUndefined();
+  });
+
   it("degrades malformed optional coverage without dropping task rows", () => {
     const parsed = AgentTaskListSchema.parse([
       {
@@ -1181,6 +1198,15 @@ describe("dashboard + runtime usage schema drift", () => {
     expect(RuntimeHourlyActivityListSchema.parse([{ hour: 9 }])[0]?.count).toBe(0);
     expect(RuntimeUsageByAgentListSchema.parse([{ model: "x" }])[0]?.agent_id).toBe("");
     expect(RuntimeUsageByHourListSchema.parse([{ hour: 9 }])[0]?.model).toBe("");
+    expect(
+      RuntimeUsageCoverageListSchema.parse([{ date: "2026-08-29" }])[0],
+    ).toEqual({
+      date: "2026-08-29",
+      completed_runs: 0,
+      complete_runs: 0,
+      output_only_runs: 0,
+      missing_runs: 0,
+    });
   });
 
   it("defaults a missing provider to \"\" so an older server's rows still price by bare model", () => {
@@ -1195,6 +1221,40 @@ describe("dashboard + runtime usage schema drift", () => {
       DashboardUsageByAgentListSchema.parse([{ model: "claude-opus-4-7" }])[0]?.provider,
     ).toBe("");
     expect(RuntimeUsageByAgentListSchema.parse([{ model: "x" }])[0]?.provider).toBe("");
+  });
+
+  it("defaults a missing UTC pricing date on every client-priced usage row", () => {
+    expect(RuntimeUsageListSchema.parse([{ date: "2026-09-04" }])[0]?.pricing_date).toBe("");
+    expect(DashboardUsageDailyListSchema.parse([{ date: "2026-09-04" }])[0]?.pricing_date).toBe("");
+    expect(DashboardUsageByAgentListSchema.parse([{ model: "x" }])[0]?.pricing_date).toBe("");
+    expect(RuntimeUsageByAgentListSchema.parse([{ model: "x" }])[0]?.pricing_date).toBe("");
+    expect(RuntimeUsageByHourListSchema.parse([{ hour: 9 }])[0]?.pricing_date).toBe("");
+  });
+
+  it("defaults a missing provider on runtime usage-by-hour rows", () => {
+    expect(RuntimeUsageByHourListSchema.parse([{ hour: 9, model: "x" }])[0]?.provider).toBe("");
+  });
+
+  it("parses a runtime cost budget and defaults missing scopes", () => {
+    const full = RuntimeCostBudgetSchema.parse({
+      runtime: { daily: { limit_usd: 20, used_usd: 3.42, period_start: "a", reset_at: "b", reached: false }, weekly: null, monthly: null },
+      users: [{ user_id: "u1", daily: null, weekly: { limit_usd: 50, used_usd: 51, period_start: "a", reset_at: "b", reached: true }, monthly: null }],
+      can_manage: true,
+    });
+    expect(full.runtime?.daily?.limit_usd).toBe(20);
+    expect(full.users[0]?.weekly?.reached).toBe(true);
+
+    const sparse = RuntimeCostBudgetSchema.parse({});
+    expect(sparse).toEqual({ runtime: null, users: [], can_manage: false });
+
+    const partialPeriod = RuntimeCostBudgetSchema.parse({ runtime: { daily: { limit_usd: 5 } } });
+    expect(partialPeriod.runtime?.daily).toEqual({ limit_usd: 5, used_usd: 0, period_start: "", reset_at: "", reached: false });
+    expect(partialPeriod.runtime?.weekly).toBeNull();
+  });
+
+  it("rejects a runtime cost budget body that is not an object", () => {
+    expect(RuntimeCostBudgetSchema.safeParse([]).success).toBe(false);
+    expect(EMPTY_RUNTIME_COST_BUDGET).toEqual({ runtime: null, users: [], can_manage: false });
   });
 
   it("rejects a non-array body so parseWithFallback can return its fallback", () => {

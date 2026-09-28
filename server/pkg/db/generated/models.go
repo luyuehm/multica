@@ -951,6 +951,18 @@ type IssueSubscriber struct {
 	OptOutScope    pgtype.Text        `json:"opt_out_scope"`
 }
 
+type IssueTemplate struct {
+	ID           pgtype.UUID        `json:"id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	Name         string             `json:"name"`
+	IssueTitle   string             `json:"issue_title"`
+	IssueContent string             `json:"issue_content"`
+	Config       []byte             `json:"config"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
 type IssueToLabel struct {
 	IssueID pgtype.UUID `json:"issue_id"`
 	LabelID pgtype.UUID `json:"label_id"`
@@ -1320,6 +1332,22 @@ type QuickAction struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
+type RuntimeCostBudget struct {
+	ID                         pgtype.UUID        `json:"id"`
+	WorkspaceID                pgtype.UUID        `json:"workspace_id"`
+	RuntimeID                  pgtype.UUID        `json:"runtime_id"`
+	UserID                     pgtype.UUID        `json:"user_id"`
+	DailyLimitUsdTicks         pgtype.Int8        `json:"daily_limit_usd_ticks"`
+	WeeklyLimitUsdTicks        pgtype.Int8        `json:"weekly_limit_usd_ticks"`
+	MonthlyLimitUsdTicks       pgtype.Int8        `json:"monthly_limit_usd_ticks"`
+	DailyNotifiedPeriodStart   pgtype.Timestamptz `json:"daily_notified_period_start"`
+	WeeklyNotifiedPeriodStart  pgtype.Timestamptz `json:"weekly_notified_period_start"`
+	MonthlyNotifiedPeriodStart pgtype.Timestamptz `json:"monthly_notified_period_start"`
+	UpdatedBy                  pgtype.UUID        `json:"updated_by"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -1555,7 +1583,8 @@ type User struct {
 	Language                pgtype.Text        `json:"language"`
 	ProfileDescription      string             `json:"profile_description"`
 	// User-preferred IANA timezone for report rendering (Viewing tz). NULL means "use the browser-detected tz at render time". Affects dashboards, charts, and any "today" label shown to this user. Does not affect data materialisation — all rollups remain in UTC.
-	Timezone pgtype.Text `json:"timezone"`
+	Timezone      pgtype.Text `json:"timezone"`
+	AccountStatus string      `json:"account_status"`
 }
 
 type UserComposioConnection struct {

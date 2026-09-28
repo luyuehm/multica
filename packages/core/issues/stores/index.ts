@@ -1,5 +1,6 @@
 export { useIssueSelectionStore } from "./selection-store";
 export {
+  getPersistedCreateMode,
   useCreateModeStore,
   openCreateIssueWithPreference,
   type CreateMode,

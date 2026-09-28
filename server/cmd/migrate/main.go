@@ -340,6 +340,8 @@ var concurrentIndexCleanups = map[string]string{
 	"482_agent_task_queue_telemetry_started_index":              "idx_agent_task_queue_telemetry_started",
 	"484_issue_triage_state_index":                              "idx_issue_triage_state",
 	"537_issue_duplicate_of_index":                              "idx_issue_duplicate_of",
+	"553_runtime_cost_budget_pkey_index":                        "runtime_cost_budget_pkey_uidx",
+	"555_runtime_cost_budget_scope_index":                       "idx_runtime_cost_budget_scope",
 }
 
 // concurrentDownIndexCleanups covers every migration whose down direction
@@ -461,6 +463,11 @@ var upMigrationConditions = map[string]migrationCondition{
 	// else, rather than failing the run (and with it backend startup) on every
 	// database without the extension.
 	"446_issue_properties_bigm_index": whenOperatorClassAvailable(pgBigmOperatorClass),
+	// Fork runtime cost budgets (renumbered 453 -> 539 on the fork, then
+	// 539 -> 553 when merged into upstream v0.5.3). A database that ran
+	// the pre-renumber stems already attached this index as the primary key,
+	// which renamed it, so IF NOT EXISTS would build a redundant duplicate.
+	"553_runtime_cost_budget_pkey_index": whenTableLacksPrimaryKey("public.runtime_cost_budget"),
 }
 
 // Migrations 454 and 455 restore the mutually exclusive comment search index
@@ -574,6 +581,27 @@ func whenOperatorClassAvailable(opclass extensionOperatorClass) migrationConditi
 		}
 		if !available {
 			return false, fmt.Sprintf("operator class %s (%s) is not installed", opclass.OperatorClass, opclass.Extension), nil
+		}
+		return true, "", nil
+	}
+}
+
+// whenTableLacksPrimaryKey applies a migration only while table has no primary
+// key, so an index build that exists solely to back one is skipped once the
+// constraint is in place.
+func whenTableLacksPrimaryKey(table string) migrationCondition {
+	return func(ctx context.Context, conn *pgxpool.Conn) (bool, string, error) {
+		var hasPrimaryKey bool
+		if err := conn.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = to_regclass($1) AND contype = 'p'
+			)
+		`, table).Scan(&hasPrimaryKey); err != nil {
+			return false, "", fmt.Errorf("inspect primary key of %s: %w", table, err)
+		}
+		if hasPrimaryKey {
+			return false, fmt.Sprintf("%s already has a primary key", table), nil
 		}
 		return true, "", nil
 	}

@@ -98,6 +98,7 @@ import { ZoomCanvas, ZoomControls } from "./zoom-canvas";
 import type { Size } from "./utils/zoom-transform";
 import { HtmlPreviewBody } from "./html-preview-body";
 import { CodeBlockStatic } from "./code-block-static";
+import { OfficeAttachmentPreview } from "./office-attachment-preview";
 
 // ---------------------------------------------------------------------------
 // Preview source — full attachment, or URL-only (media types only)
@@ -538,6 +539,7 @@ const KIND_ICONS: Record<PreviewKind, LucideIcon> = {
   markdown: FileText,
   html: FileCode,
   text: FileCode,
+  office: FileText,
 };
 
 // Top bar and stage live together because the image kind's zoom controls sit
@@ -1025,6 +1027,13 @@ function PreviewContent({
               />
             </DocumentSheet>
           )}
+        />
+      );
+    case "office":
+      return (
+        <OfficeAttachmentPreview
+          attachmentId={state.attachmentId!}
+          onDownload={onDownload}
         />
       );
   }

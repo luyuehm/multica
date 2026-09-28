@@ -11,6 +11,76 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const advanceIssueStatusIfActive = `-- name: AdvanceIssueStatusIfActive :one
+UPDATE issue AS i SET
+    status = $2,
+    position = CASE WHEN i.status IS DISTINCT FROM $2 THEN (
+        SELECT COALESCE(MIN(target.position), 0) - 1
+        FROM issue AS target
+        WHERE target.workspace_id = i.workspace_id
+          AND target.status = $2
+    ) ELSE i.position END,
+    revision = i.revision + CASE WHEN i.status IS DISTINCT FROM $2 THEN 1 ELSE 0 END,
+    last_activity_at = CASE WHEN i.status IS DISTINCT FROM $2
+        THEN GREATEST(COALESCE(i.last_activity_at, i.updated_at), now())
+        ELSE i.last_activity_at
+    END,
+    updated_at = now()
+WHERE i.id = $1 AND i.workspace_id = $3
+  AND i.status NOT IN ('done', 'cancelled', 'archive')
+RETURNING i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, i.stage, i.properties, i.revision, i.last_activity_at, i.triage_state
+`
+
+type AdvanceIssueStatusIfActiveParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Status      string      `json:"status"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Conditional status write for asynchronous (webhook/system) advancement:
+// fires only while the issue is still active, so a snapshot read racing a
+// concurrent archive (fork status #39) / done / cancel cannot resurrect or
+// double-advance it. No rows = a concurrent writer settled the issue first;
+// callers skip their side effects. The SET clause mirrors UpdateIssueStatus
+// so an advanced issue is repositioned and its revision bumped like any other
+// status write.
+func (q *Queries) AdvanceIssueStatusIfActive(ctx context.Context, arg AdvanceIssueStatusIfActiveParams) (Issue, error) {
+	row := q.db.QueryRow(ctx, advanceIssueStatusIfActive, arg.ID, arg.Status, arg.WorkspaceID)
+	var i Issue
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.CreatorType,
+		&i.CreatorID,
+		&i.ParentIssueID,
+		&i.AcceptanceCriteria,
+		&i.ContextRefs,
+		&i.Position,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.ProjectID,
+		&i.OriginType,
+		&i.OriginID,
+		&i.FirstExecutedAt,
+		&i.StartDate,
+		&i.Metadata,
+		&i.Stage,
+		&i.Properties,
+		&i.Revision,
+		&i.LastActivityAt,
+		&i.TriageState,
+	)
+	return i, err
+}
+
 const childIssueProgress = `-- name: ChildIssueProgress :many
 SELECT parent_issue_id,
        COUNT(*)::bigint AS total,

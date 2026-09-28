@@ -107,13 +107,14 @@ func (h *Handler) notifyParentOfChildDone(ctx context.Context, prev, issue db.Is
 		return
 	}
 	// Custom terminal statuses close this out. Only the fixed backlog key parks it,
-	// exactly like Done/Cancelled and Backlog do. (MUL-6243)
+	// exactly like Done/Cancelled and Backlog do. (MUL-6243) Archive (fork
+	// status #39) is retired work and closes it out too.
 	parentStatus, err := effective(parent)
 	if err != nil {
 		slog.Warn("child done: failed to resolve parent status", "error", err, "parent_id", uuidToString(parent.ID))
 		return
 	}
-	if parentStatus == "done" || parentStatus == "cancelled" {
+	if parentStatus == "done" || parentStatus == "cancelled" || parent.Status == "archive" {
 		return
 	}
 	// A parent parked in backlog is deliberately held for later. Posting the
@@ -222,7 +223,7 @@ func (h *Handler) notifyParentsOfBatchChildDone(ctx context.Context, completed [
 			slog.Warn("batch child done: failed to resolve parent status", "error", err, "parent_id", uuidToString(parent.ID))
 			continue
 		}
-		if parentStatus == "done" || parentStatus == "cancelled" {
+		if parentStatus == "done" || parentStatus == "cancelled" || parent.Status == "archive" {
 			continue
 		}
 		if parentStatus == "backlog" {
@@ -469,12 +470,14 @@ func (h *Handler) postChildDoneComment(ctx context.Context, parent, completed db
 // isTerminalChildStatus reports whether a child issue status counts as
 // "finished" for stage-barrier purposes. Cancelled counts as terminal: a
 // cancelled sibling will never complete, so it must not hold a stage open.
+// Archive (fork status #39) counts for the same reason — retired work never
+// completes either.
 //
 // Takes a CANONICAL status. Callers that hold a raw `issue.status` must pass it
 // through childStatusResolver first, so a custom status in the done or
 // cancelled category closes a stage exactly like Done and Cancelled do.
 func isTerminalChildStatus(status string) bool {
-	return status == "done" || status == "cancelled"
+	return status == "done" || status == "cancelled" || status == "archive"
 }
 
 // childStatusResolver shares each workspace's catalog across the guards,
@@ -491,6 +494,12 @@ func (h *Handler) childStatusResolver(ctx context.Context) func(db.Issue) (strin
 	return func(c db.Issue) (string, error) {
 		if issuestatus.IsBuiltIn(c.Status) {
 			return c.Status, nil
+		}
+		// Archive (fork status #39) is closed without completion: the barrier,
+		// the stage progress summary and the notification wording all treat it
+		// exactly like cancelled work.
+		if c.Status == issuestatus.Archive {
+			return issuestatus.Cancelled, nil
 		}
 		resolver := resolvers[c.WorkspaceID]
 		if resolver == nil {

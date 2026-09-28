@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setCurrentWorkspace } from "../platform/workspace-storage";
 import { createAuthStore } from "../auth";
 import { configStore } from "../config";
 import type { StorageAdapter, User } from "../types";
 import { ApiClient, ApiError, CHAT_DRAFT_RESTORE_CAPABILITY, clientErrorMessage } from "./client";
-import { EMPTY_PLUGIN_PACKAGE_LIST, EMPTY_PLUGIN_PREVIEW, EMPTY_PLUGIN_SURFACE_LAUNCH } from "./schemas";
+import {
+  EMPTY_PLUGIN_PACKAGE_LIST,
+  EMPTY_PLUGIN_PREVIEW,
+  EMPTY_PLUGIN_SURFACE_LAUNCH,
+  EMPTY_RUNTIME_COST_BUDGET,
+} from "./schemas";
 
 afterEach(() => {
+  setCurrentWorkspace(null, null);
   configStore.getState().setAgentConversationStartersSupported(false);
   vi.unstubAllGlobals();
 });
@@ -1278,6 +1285,25 @@ describe("ApiClient", () => {
     expect(headers["X-Client-OS"]).toBe("macos");
   });
 
+  it("can fetch notification preferences for a workspace other than the current slug", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ workspace_id: "ws-target", preferences: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient("https://api.example.test");
+    setCurrentWorkspace("current", "ws-current");
+
+    await client.getNotificationPreferences("target");
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://api.example.test/api/notification-preferences");
+    expect((init?.headers as Record<string, string>)["X-Workspace-Slug"]).toBe("target");
+  });
+
   it("omits X-Client-* headers when identity is not configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([]), {
@@ -2278,6 +2304,65 @@ describe("ApiClient model discovery response schema", () => {
  * every child kept notifying. An unknown path 404s, which surfaces as a
  * rejected mutation the user can act on.
  */
+describe("ApiClient runtime cost budget writes", () => {
+  const budget = {
+    runtime: {
+      daily: {
+        limit_usd: 20,
+        used_usd: 3.42,
+        period_start: "2026-09-03T00:00:00Z",
+        reset_at: "2026-09-04T00:00:00Z",
+        reached: false,
+      },
+      weekly: null,
+      monthly: null,
+    },
+    users: [],
+    can_manage: true,
+  };
+
+  // Parsing tolerance, not a claim about the current server: an installed
+  // desktop build can talk to a backend that answers this PUT with 204 and no
+  // body. The client must then answer the empty budget rather than throw or
+  // hand the caller `undefined` — the mutation's invalidation refetches through
+  // GET, which is the single read gate.
+  it("answers the empty budget when the write returns 204 with no body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+    );
+
+    const result = await new ApiClient("https://api.example.test")
+      .updateRuntimeCostBudget("rt-1", {
+        runtime: { daily_usd: 20, weekly_usd: null, monthly_usd: null },
+        users: [],
+      });
+
+    expect(result).toEqual(EMPTY_RUNTIME_COST_BUDGET);
+  });
+
+  it("parses the budget body a 200 carries", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(budget), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const result = await new ApiClient("https://api.example.test")
+      .updateRuntimeCostBudget("rt-1", {
+        runtime: { daily_usd: 20, weekly_usd: null, monthly_usd: null },
+        users: [],
+      });
+
+    expect(result.can_manage).toBe(true);
+    expect(result.runtime?.daily?.limit_usd).toBe(20);
+  });
+});
+
 describe("ApiClient unsubscribe endpoints", () => {
   function stubOK() {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));

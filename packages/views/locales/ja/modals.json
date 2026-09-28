@@ -149,6 +149,7 @@
     "description_placeholder": "説明を追加...",
     "more_options_aria": "その他のオプション",
     "title_required": "作成するにはタイトルを入力してください",
+    "project_required": "作成するにはプロジェクトを選択してください",
     "submit": "タスクを作成",
     "submitting": "作成中...",
     "toast_created": "タスクを作成しました",
@@ -245,6 +246,19 @@
       "error_daemon_version": "このエージェントのデーモン CLI（{{current}}）が必要なバージョン {{min}} を下回っています。エージェントで作成を使用するには、デーモンをアップグレードしてください。",
       "error_unknown": "送信できませんでした。再試行してください。",
       "sub_issue_of": "{{identifier}} のサブタスク"
+    },
+    "template": {
+      "trigger": "Apply Issue Template",
+      "title": "Select template",
+      "description": "The selected template fills the issue title and content.",
+      "empty_title": "No issue templates yet",
+      "empty_description": "Create one from the Issue Templates page under Configure.",
+      "manage": "Open Issue Templates",
+      "apply_failed": "Failed to apply issue template",
+      "confirm_title": "Overwrite current title and content?",
+      "confirm_description": "Applying a template replaces the current issue title and content. Other fields stay unchanged.",
+      "confirm_cancel": "Cancel",
+      "confirm_apply": "Overwrite"
     }
   },
   "mark_duplicate": {
@@ -254,5 +268,15 @@
     "toast_failed": "重複としてマークできませんでした",
     "error_target_is_duplicate": "{{identifier}} 自体が重複です。元のタスクを選択してください",
     "error_has_duplicates": "他のタスクがこのタスクの重複としてマークされています。先にそのマークを解除してください"
+  },
+  "issue_status_confirm": {
+    "title": "Change issue status?",
+    "description_cancelled": "This issue will be marked as Cancelled. You can cancel now to keep the current status.",
+    "description_archive": "This issue will be moved to Archive. You can cancel now to keep the current status.",
+    "description_cancelled_batch": "{{count}} selected issues will be marked as Cancelled. You can cancel now to keep their current statuses.",
+    "description_archive_batch": "{{count}} selected issues will be moved to Archive. You can cancel now to keep their current statuses.",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "confirming": "Confirming..."
   }
 }

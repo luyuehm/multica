@@ -465,7 +465,7 @@ var issueSearchCmd = &cobra.Command{
 // so this is the list shown in help text and error messages, not the set of
 // accepted values — see validateIssueStatus.
 var validIssueStatuses = []string{
-	"backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled",
+	"backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled", "archive",
 }
 
 var validIssuePriorities = []string{
@@ -3267,10 +3267,10 @@ func matchAssignee(name string, kinds assigneeKinds, candidates []assigneeCandid
 
 func normalizeAssigneeLookupInput(raw string) string {
 	input := strings.TrimSpace(raw)
-	if m := util.MentionRe.FindStringSubmatch(input); len(m) == 4 && m[0] == input {
-		switch m[2] {
+	if matches := util.FindMentionMatches(input); len(matches) == 1 && matches[0].Start == 0 && matches[0].End == len(input) {
+		switch matches[0].Type {
 		case "member", "agent", "squad":
-			return m[3]
+			return matches[0].ID
 		}
 	}
 	input = strings.TrimLeftFunc(input, func(r rune) bool {

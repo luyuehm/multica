@@ -481,7 +481,9 @@ vi.mock("react-virtuoso", () => ({
 }));
 
 // jsdom's HTMLElement.prototype.scrollIntoView is a no-op stub; replace it
-// with a spy so the deep-link effect's call can be observed.
+// with a spy so a stray scrollIntoView call from any component doesn't throw.
+// The deep-link effect itself drives scrollTop, not scrollIntoView, so tests
+// assert the highlight ring rather than this spy.
 beforeEach(() => {
   scrollIntoViewSpy.mockClear();
   scrollToIndexSpy.mockClear();
@@ -603,7 +605,12 @@ import { IssueDetail, groupSubIssuesByStage } from "./issue-detail";
 function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false, gcTime: 0 },
+      queries: {
+        retry: false,
+        gcTime: 0,
+        staleTime: Infinity,
+        refetchOnWindowFocus: false,
+      },
       mutations: { retry: false },
     },
   });
@@ -645,7 +652,7 @@ function renderIssueDetailWithStatusCatalog(
 function renderIssueDetailWithHighlight(
   highlightCommentId: string,
   issueId = "issue-1",
-  options: { seedTimeline?: boolean } = {},
+  options: { seedTimeline?: boolean; seedTimelineData?: TimelineEntry[] } = {},
 ) {
   const queryClient = createTestQueryClient();
   if (options.seedTimeline) {
@@ -654,7 +661,10 @@ function renderIssueDetailWithHighlight(
     // the issue itself has finished loading, so the effect that scrolls to
     // the comment fires once with `loading=true` (skeleton still rendered,
     // no comment DOM) and must re-fire when `loading` flips to false.
-    queryClient.setQueryData(["issues", "timeline", issueId], mockTimeline);
+    queryClient.setQueryData(
+      ["issues", "timeline", issueId],
+      options.seedTimelineData ?? mockTimeline,
+    );
   }
   const result = render(
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
@@ -2253,6 +2263,27 @@ describe("IssueDetail (shared)", () => {
           document.getElementById("comment-comment-2"),
         ).not.toBeNull();
       });
+      await waitFor(() => {
+        expect(
+          hasHighlightedCommentBackground(document.getElementById("comment-comment-2")),
+        ).toBe(true);
+      });
+    });
+
+    it("refetches the timeline when a highlighted inbox comment is missing from a fresh cache", async () => {
+      renderIssueDetailWithHighlight("comment-2", "issue-1", {
+        seedTimeline: true,
+        seedTimelineData: [mockTimeline[0]!],
+      });
+
+      expect(screen.queryByText("I can help with this")).not.toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(screen.getByText("I can help with this")).toBeInTheDocument();
+      });
+      // The deep-link effect drives the timeline container's scrollTop directly
+      // (no native scrollIntoView), so assert the mechanism-independent landing
+      // signal: the refetched target comment gets the highlight background.
       await waitFor(() => {
         expect(
           hasHighlightedCommentBackground(document.getElementById("comment-comment-2")),

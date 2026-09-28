@@ -27,6 +27,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -1992,6 +1993,68 @@ func (h *Handler) lookupIssueByIdentifier(ctx context.Context, workspaceID pgtyp
 		return db.Issue{}, false
 	}
 	return issue, true
+}
+
+func (h *Handler) advanceIssueToDone(ctx context.Context, issue db.Issue, workspaceID string) {
+	// An issue leaves Triage only by being accepted; a merged "Closes" PR
+	// links to it but must not move it out. (MUL-7189 §2.2)
+	if issue.TriageState.Valid {
+		return
+	}
+	tx, err := h.TxStarter.Begin(ctx)
+	if err != nil {
+		slog.Warn("github: advance issue to done failed", "err", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+	qtx := h.Queries.WithTx(tx)
+	// Conditional write: the caller's `issue` snapshot may be stale by the
+	// time this runs (webhook processing racing a concurrent archive/done/
+	// cancel), so AdvanceIssueStatusIfActive only advances issues still in
+	// an active status. ErrNoRows means a concurrent writer already settled
+	// the issue — skip the notify/publish side effects rather than
+	// resurrecting or double-advancing it.
+	updated, err := qtx.AdvanceIssueStatusIfActive(ctx, db.AdvanceIssueStatusIfActiveParams{
+		ID:          issue.ID,
+		Status:      "done",
+		WorkspaceID: issue.WorkspaceID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		slog.Info("github: issue already settled, skipping advance", "issue_id", uuidToString(issue.ID))
+		return
+	}
+	var cancelledWakeups []db.AgentTaskQueue
+	if err == nil {
+		cancelledWakeups, err = service.StopClosedIssueWakeups(ctx, qtx, updated)
+	}
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	if err != nil {
+		slog.Warn("github: advance issue to done failed", "err", err)
+		return
+	}
+	h.broadcastCancelledWakeups(ctx, updated.WorkspaceID, cancelledWakeups)
+
+	// Fire the platform parent-notification path on the same transition the
+	// HTTP UpdateIssue / BatchUpdateIssues paths use. A merged PR is one of
+	// the most common ways a sub-issue actually reaches `done`, and skipping
+	// it here would leave the parent silent for the dominant completion path.
+	// notifyParentOfChildDone re-checks every guard (prev != done, parent
+	// exists, parent not terminal), so calling it unconditionally is safe.
+	h.notifyParentOfChildDone(ctx, issue, updated)
+
+	prefix := h.getIssuePrefix(ctx, issue.WorkspaceID)
+	resp := issueToResponse(updated, prefix)
+	h.fillStatusCategory(ctx, updated.WorkspaceID, &resp)
+	h.publish(protocol.EventIssueUpdated, workspaceID, "system", "", map[string]any{
+		"issue":          resp,
+		"status_changed": true,
+		"prev_status":    issue.Status,
+		"creator_type":   issue.CreatorType,
+		"creator_id":     uuidToString(issue.CreatorID),
+		"source":         "github_pr_merged",
+	})
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

@@ -778,7 +778,12 @@ func TestPlatformSkillTeachesTheParserContract(t *testing.T) {
 				t.Fatalf("ParseMentions(%q) = %+v, want %+v", tc.content, got, tc.want)
 			}
 			for i := range got {
-				if got[i] != tc.want[i] {
+				// This fork's Mention also carries a Label (the visible markdown
+				// text) that upstream's contract cases don't specify. Routing
+				// uses only Type and ID, so the contract is about those two;
+				// Label behavior is pinned separately in
+				// util.TestParseMentions_PopulatesLabel.
+				if got[i].Type != tc.want[i].Type || got[i].ID != tc.want[i].ID {
 					t.Errorf("mention[%d] = %+v, want %+v", i, got[i], tc.want[i])
 				}
 			}

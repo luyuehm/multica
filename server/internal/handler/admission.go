@@ -61,9 +61,11 @@ const (
 	ReasonRuntimeProfileMissing = dispatch.ReasonRuntimeProfileMissing
 	ReasonAgentRuntimeRequired  = dispatch.ReasonAgentRuntimeRequired
 	ReasonAttributionBlocked    = dispatch.ReasonAttributionBlocked
+	ReasonBudgetExceeded        = dispatch.ReasonBudgetExceeded
 	ReasonAlreadyActive         = dispatch.ReasonAlreadyActive
 	ReasonSelfTriggerSuppressed = dispatch.ReasonSelfTriggerSuppressed
 	ReasonIssueInTriage         = dispatch.ReasonIssueInTriage
+	ReasonIssueArchived         = dispatch.ReasonIssueArchived
 	ReasonInternalError         = dispatch.ReasonInternalError
 )
 
@@ -134,6 +136,10 @@ func dispatchBlockedFallbackMessage(code DispatchReasonCode) string {
 		return "a run is already active for this target"
 	case ReasonIssueInTriage:
 		return "the issue is in Triage and has no owner to run yet; accept it out of Triage first"
+	case ReasonIssueArchived:
+		return "this issue is archived; restore it before running agents"
+	case ReasonBudgetExceeded:
+		return "the cost budget for this runtime is reached"
 	default:
 		return "the run was blocked"
 	}

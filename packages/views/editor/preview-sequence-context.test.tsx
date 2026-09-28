@@ -15,7 +15,12 @@ const { downloadMock, getBaseUrlMock, toastErrorMock } = vi.hoisted(() => ({
   toastErrorMock: vi.fn(),
 }));
 
-vi.mock("../platform", () => ({ openExternal: vi.fn() }));
+vi.mock("../platform", () => ({
+  openExternal: vi.fn(),
+  // No-op in jsdom: the real hook drives Electron traffic-light visibility
+  // via window.desktopAPI, which doesn't exist here.
+  useImmersiveMode: vi.fn(),
+}));
 
 vi.mock("@multica/core/api", () => ({
   api: { getBaseUrl: getBaseUrlMock, getAttachmentTextContent: vi.fn() },
@@ -66,6 +71,10 @@ const STRINGS: Record<string, Record<string, string>> = {
     previous: "Previous",
     next: "Next",
     sequence_position: "{{index}} / {{total}}",
+  },
+  file_card: {
+    enter_full_screen: "Enter full screen",
+    exit_full_screen: "Exit full screen",
   },
 };
 

@@ -97,7 +97,14 @@
     "fullscreen": "放大"
   },
   "file_card": {
-    "uploading": "正在上传 {{filename}}"
+    "uploading": "正在上传 {{filename}}",
+    "preview": "预览 {{filename}}",
+    "download": "下载 {{filename}}",
+    "preview_loading": "正在加载预览...",
+    "preview_failed": "加载预览失败",
+    "enter_full_screen": "进入全屏",
+    "exit_full_screen": "退出全屏",
+    "close_preview": "关闭预览"
   },
   "upload": {
     "failed": "{{filename}} 上传失败：{{reason}}",
