@@ -2321,6 +2321,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Route("/api/issue-templates", func(r chi.Router) {
 				r.Get("/", h.ListIssueTemplates)
 				r.Post("/", h.CreateIssueTemplate)
+				r.Patch("/reorder", h.ReorderIssueTemplates)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetIssueTemplate)
 					r.Put("/", h.UpdateIssueTemplate)
@@ -2328,6 +2329,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// for workspace teardown and true removal.
 					r.Post("/archive", h.ArchiveIssueTemplate)
 					r.Post("/unarchive", h.UnarchiveIssueTemplate)
+					r.Post("/enabled", h.SetIssueTemplateEnabled)
 					r.Delete("/", h.DeleteIssueTemplate)
 					// Instantiate parses template variables and returns a
 					// prefilled new-issue payload without creating an issue.
