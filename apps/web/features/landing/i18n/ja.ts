@@ -1,4 +1,4 @@
-import { githubUrl, discordUrl } from "../components/shared";
+import { githubUrl } from "../components/shared";
 import { createEnDict } from "./en";
 import type { LandingDict } from "./types";
 
@@ -252,8 +252,6 @@ export function createJaDict(
           links: [
             { label: "ドキュメント", href: docsHref },
             { label: "API", href: githubUrl },
-            { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
-            { label: "Discord", href: discordUrl },
           ],
         },
         company: {
@@ -2079,7 +2077,6 @@ export function createJaDict(
           features: [
             "Lark のトピックから始まった会話は元のトピック内に返信され、議論の流れを追いやすくなりました。",
             "小隊リーダーはメンバーのスキルを一覧で確認でき、より適切に作業を任せられます。",
-            "Discord への入口がウェブサイトのフッター、ヘルプメニュー、README、閉じられるアプリ内サイドバーカードに追加されました。",
           ],
           improvements: [
             "タスクヘッダーのエージェント活動はホバーで開けるようになり、進行中の作業をすばやく確認できます。",
@@ -3116,7 +3113,6 @@ export function createJaDict(
         contacts: [
           { label: "商用ライセンス・営業", linkLabel: "営業に相談", href: "/contact-sales" },
           { label: "ライセンスの考え方", linkLabel: "ライセンス FAQ", href: "/licensing" },
-          { label: "コミュニティ・サポート", linkLabel: "Discord", href: discordUrl },
           { label: "ソースコード・Issue", linkLabel: "GitHub", href: githubUrl },
         ],
       },
@@ -3193,7 +3189,7 @@ export function createJaDict(
         {
           heading: "商用ライセンスの取得",
           paragraphs: [
-            "[営業に相談](/contact-sales)からユースケースをお知らせください。3営業日以内にご連絡します。ライセンスが必要かどうかわからない場合は、[Discord](" + discordUrl + ") または同じフォームからお気軽にお尋ねください。",
+            "[営業に相談](/contact-sales)からユースケースをお知らせください。3営業日以内にご連絡します。ライセンスが必要かどうかわからない場合は、同じフォームからお気軽にお尋ねください。",
           ],
         },
       ],

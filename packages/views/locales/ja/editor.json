@@ -90,7 +90,12 @@
     "fullscreen": "全画面"
   },
   "file_card": {
-    "uploading": "{{filename}} をアップロード中"
+    "uploading": "{{filename}} をアップロード中",
+    "preview": "Preview {{filename}}",
+    "download": "Download {{filename}}",
+    "preview_loading": "Loading preview...",
+    "preview_failed": "Failed to load preview",
+    "close_preview": "Close preview"
   },
   "upload": {
     "failed": "{{filename}} をアップロードできませんでした: {{reason}}",

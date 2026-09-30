@@ -1,4 +1,4 @@
-import { githubUrl, discordUrl } from "../components/shared";
+import { githubUrl } from "../components/shared";
 import type { LandingDict } from "./types";
 
 export function createEnDict(
@@ -23,7 +23,7 @@ export function createEnDict(
     headlineLine2: "won\u2019t be human.",
     subheading:
       "Multica is a source-available platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills \u2014 manage your human + agent workforce in one place.",
-    cta: "Start free trial",
+    cta: "Log in",
     downloadDesktop: "Download Desktop",
     talkToSales: "Talk to sales",
     worksWith: "Works with 20+ AI coding tools",
@@ -126,15 +126,14 @@ export function createEnDict(
   },
 
   howItWorks: {
-    label: "Get started",
+    label: "Access",
     headlineMain: "Hire your first AI employee",
     headlineFaded: "in the next hour.",
     steps: [
       {
-        title: allowSignup ? "Sign up & create your workspace" : "Login to your workspace",
-        description: allowSignup
-          ? "Enter your email, verify with a code, and you\u2019re in. Your workspace is created automatically \u2014 no setup wizard, no configuration forms."
-          : "Enter your email, verify with a code, and you\u2019re logged into your workspace \u2014 no setup wizard, no configuration forms.",
+        title: "Log in to your workspace",
+        description:
+          "Enter your email, verify with a code, and you\u2019re logged into your workspace \u2014 no setup wizard, no configuration forms.",
       },
       {
         title: "Install the CLI & connect your machine",
@@ -152,7 +151,7 @@ export function createEnDict(
           "Pick your agent from the assignee dropdown \u2014 just like assigning to a teammate. The task is queued, claimed, and executed automatically. Watch progress in real time.",
       },
     ],
-    cta: "Get started",
+    cta: "Log in",
     ctaGithub: "View on GitHub",
     ctaDocs: "Read the docs",
   },
@@ -235,7 +234,7 @@ export function createEnDict(
   footer: {
     tagline:
       "Project management for human + agent teams. Source-available, self-hostable, built for the future of work.",
-    cta: "Get started",
+    cta: "Log in",
     groups: {
       product: {
         label: "Product",
@@ -252,8 +251,6 @@ export function createEnDict(
         links: [
           { label: "Documentation", href: docsHref },
           { label: "API", href: githubUrl },
-          { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
-          { label: "Discord", href: discordUrl },
         ],
       },
       company: {
@@ -308,7 +305,6 @@ export function createEnDict(
           linkLabel: "Licensing FAQ",
           href: "/licensing",
         },
-        { label: "Community & support", linkLabel: "Discord", href: discordUrl },
         { label: "Source code & issues", linkLabel: "GitHub", href: githubUrl },
       ],
     },
@@ -394,7 +390,7 @@ export function createEnDict(
       {
         heading: "Getting a commercial license",
         paragraphs: [
-          "Tell us about your use case through [Contact Sales](/contact-sales) and we\u2019ll get back to you within three business days. Not sure whether your setup needs a license? Ask us on [Discord](" + discordUrl + ") or through the same form.",
+          "Tell us about your use case through [Contact Sales](/contact-sales) and we\u2019ll get back to you within three business days. Not sure whether your setup needs a license? Ask us through the same form.",
         ],
       },
     ],
@@ -2323,7 +2319,6 @@ export function createEnDict(
         features: [
           "Lark conversations now reply inside the original topic when a message starts from a topic, keeping team discussions easier to follow",
           "Squad leaders can see member skills in the roster, making delegation more precise",
-          "Discord is now available from the website footer, help menu, README, and a dismissible in-app sidebar card",
         ],
         improvements: [
           "Agent activity in Issue headers opens on hover, so live work is easier to check at a glance",

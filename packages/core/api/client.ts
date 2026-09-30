@@ -65,15 +65,24 @@ import type {
   CreateSkillRequest,
   UpdateSkillRequest,
   SetAgentSkillsRequest,
+  IssueTemplate,
+  IssueTemplateSummary,
+  CreateIssueTemplateRequest,
+  UpdateIssueTemplateRequest,
+  InstantiatedIssuePayload,
+  InstantiateIssueTemplateRequest,
   SetAgentRuntimeSkillEnabledRequest,
   PersonalAccessToken,
   CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
   RuntimeUsage,
+  RuntimeUsageCoverage,
   IssueUsageSummary,
   RuntimeHourlyActivity,
   RuntimeUsageByAgent,
   RuntimeUsageByHour,
+  RuntimeCostBudget,
+  RuntimeCostBudgetInput,
   DashboardUsageDaily,
   DashboardUsageByAgent,
   DashboardAgentRunTime,
@@ -212,6 +221,7 @@ import type {
   CreateBillingCheckoutSessionResponse,
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
+  OfficeConfig,
   WorkspaceSubscriptionSummary,
   IssueLimitUsage,
   WorkspaceSubscriptionPrices,
@@ -243,6 +253,14 @@ import { type Logger, noopLogger } from "../logger";
 import { createRequestId, createSafeId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
+import { ACCOUNT_SUSPENDED_CODE } from "../auth/utils";
+import {
+  adminUserListSchema,
+  adminUserSchema,
+  EMPTY_ADMIN_USER,
+  type AdminAccountStatusFilter,
+  type AdminUser,
+} from "../admin/schema";
 import {
   RuntimeProfileSchema,
   RuntimeProfileListSchema,
@@ -329,6 +347,9 @@ import {
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
+  RuntimeUsageCoverageListSchema,
+  RuntimeCostBudgetSchema,
+  EMPTY_RUNTIME_COST_BUDGET,
   SearchIssuesResponseSchema,
   SearchProjectsResponseSchema,
   SquadSchema,
@@ -347,6 +368,7 @@ import {
   CreateBillingCheckoutSessionResponseSchema,
   BillingCheckoutSessionStatusSchema,
   CreateBillingPortalSessionResponseSchema,
+  OfficeConfigResponseSchema,
   WorkspaceSubscriptionSummarySchema,
   IssueLimitUsageSchema,
   WorkspaceSubscriptionPricesSchema,
@@ -384,6 +406,7 @@ import {
   EMPTY_BILLING_CHECKOUT_SESSION_STATUS,
   EMPTY_CREATE_BILLING_PORTAL_SESSION_RESPONSE,
   EMPTY_CANCEL_TASK_RESPONSE,
+  EMPTY_OFFICE_CONFIG,
   EMPTY_CHAT_DRAFT_RESTORES,
   CreateFeedbackResponseSchema,
   EMPTY_CREATE_FEEDBACK_RESPONSE,
@@ -468,6 +491,14 @@ import {
   type IssueViewPreference,
   type CreateIssueViewRequest,
 } from "./schemas";
+import {
+  EMPTY_ISSUE_TEMPLATE_DETAIL,
+  EMPTY_ISSUE_TEMPLATE_SUMMARY_LIST,
+  EMPTY_INSTANTIATED_ISSUE_PAYLOAD,
+  InstantiatedIssuePayloadSchema,
+  IssueTemplateDetailSchema,
+  IssueTemplateSummaryListSchema,
+} from "../issue-templates/schemas";
 
 /** Identifies the calling client to the server.
  *  Sent on every HTTP request as X-Client-Platform / X-Client-Version /
@@ -485,6 +516,15 @@ export interface ApiClientIdentity {
 export interface ApiClientOptions {
   logger?: Logger;
   onUnauthorized?: () => void;
+  /**
+   * Fires whenever the server rejects the caller's session outright:
+   * `"unauthorized"` on a 401 (alongside the existing `onUnauthorized`,
+   * kept for back-compat) and `"account_suspended"` on a 403 whose body
+   * carries `code === ACCOUNT_SUSPENDED_CODE`. A plain 403 (permission
+   * denied on an otherwise-valid session) does NOT fire this — only a
+   * rejection of the session itself does.
+   */
+  onSessionRejected?: (reason: "unauthorized" | "account_suspended") => void;
   /** Identifies the client to the server. Sent as X-Client-* headers. */
   identity?: ApiClientIdentity;
   /**
@@ -846,16 +886,23 @@ export class ApiClient {
     // to /login which leaves the workspace route, and the next workspace
     // entry will overwrite the id. No clear needed here.
     this.options.onUnauthorized?.();
+    this.options.onSessionRejected?.("unauthorized");
   }
 
-  private async parseErrorMessage(res: Response, fallback: string): Promise<string> {
-    try {
-      const data = await res.json() as { error?: string };
-      if (typeof data.error === "string" && data.error) return data.error;
-    } catch {
-      // Ignore non-JSON error bodies.
+  // Distinct from handleUnauthorized: a suspended account gets a 403 (the
+  // session is valid, but the server refuses to act on its behalf), not a
+  // 401. Clears the token the same way so the next request doesn't retry
+  // with dead credentials.
+  private handleAccountSuspended(credentialUsed: string | null) {
+    // Same stale-response guard as handleUnauthorized: a refusal of a
+    // credential this client has since replaced says nothing about the
+    // current one.
+    if (credentialUsed !== null && this.getToken() !== credentialUsed) {
+      this.logger.info("ignoring account-suspended 403 for a credential that has since been replaced");
+      return;
     }
-    return fallback;
+    this.token = null;
+    this.options.onSessionRejected?.("account_suspended");
   }
 
   // Reads the response body once for both human-readable error message and
@@ -932,8 +979,20 @@ export class ApiClient {
     }
 
     if (!res.ok) {
-      if (res.status === 401) this.handleUnauthorized(credentialUsed);
+      // Parse the body FIRST — the 403 branch needs `body.code` to tell an
+      // account-suspension rejection apart from an ordinary permission
+      // denial, and the body stream can only be read once.
       const { message, body } = await this.parseErrorBody(res, `API error: ${res.status} ${res.statusText}`);
+      if (res.status === 401) {
+        this.handleUnauthorized(credentialUsed);
+      } else if (
+        res.status === 403 &&
+        body &&
+        typeof body === "object" &&
+        (body as { code?: unknown }).code === ACCOUNT_SUSPENDED_CODE
+      ) {
+        this.handleAccountSuspended(credentialUsed);
+      }
       const logLevel = res.status === 404 ? "warn" : "error";
       this.logger[logLevel](`← ${res.status} ${path}`, { rid, duration: `${Date.now() - start}ms`, error: message });
       throw new ApiError(message, res.status, res.statusText, body);
@@ -1010,6 +1069,30 @@ export class ApiClient {
     const raw = await this.fetch<unknown>("/api/me");
     return parseWithFallback(raw, UserSchema, EMPTY_USER, {
       endpoint: "GET /api/me",
+    });
+  }
+
+  // System-admin user management (GET /api/admin/users, PATCH
+  // /api/admin/users/{id}/status). Reachable only when `getMe().is_system_admin
+  // === true`; the server 403s (ordinary permission denial, not
+  // ACCOUNT_SUSPENDED) for everyone else.
+  async getAdminUsers(status: AdminAccountStatusFilter): Promise<AdminUser[]> {
+    const raw = await this.fetch<unknown>(`/api/admin/users?status=${status}`);
+    return parseWithFallback(raw, adminUserListSchema, { users: [] }, {
+      endpoint: "GET /api/admin/users",
+    }).users ?? [];
+  }
+
+  async setUserAccountStatus(
+    userId: string,
+    status: "active" | "suspended",
+  ): Promise<AdminUser> {
+    const raw = await this.fetch<unknown>(`/api/admin/users/${userId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    return parseWithFallback(raw, adminUserSchema, EMPTY_ADMIN_USER, {
+      endpoint: "PATCH /api/admin/users/:id/status",
     });
   }
 
@@ -1541,6 +1624,7 @@ export class ApiClient {
     parentId?: string,
     attachmentIds?: string[],
     suppressAgentIds?: string[],
+    steerTaskIds?: string[],
   ): Promise<Comment> {
     return this.fetch(`/api/issues/${issueId}/comments`, {
       method: "POST",
@@ -1550,6 +1634,7 @@ export class ApiClient {
         ...(parentId ? { parent_id: parentId } : {}),
         ...(attachmentIds?.length ? { attachment_ids: attachmentIds } : {}),
         ...(suppressAgentIds?.length ? { suppress_agent_ids: suppressAgentIds } : {}),
+        ...(steerTaskIds?.length ? { steer_task_ids: steerTaskIds } : {}),
       }),
     });
   }
@@ -2361,6 +2446,24 @@ export class ApiClient {
     });
   }
 
+  async getRuntimeUsageCoverage(
+    runtimeId: string,
+    params?: { days?: number; tz?: string },
+  ): Promise<RuntimeUsageCoverage[]> {
+    const search = new URLSearchParams();
+    if (params?.days) search.set("days", String(params.days));
+    if (params?.tz) search.set("tz", params.tz);
+    const raw = await this.fetch<unknown>(
+      `/api/runtimes/${runtimeId}/usage/coverage?${search}`,
+    );
+    return parseWithFallback<RuntimeUsageCoverage[]>(
+      raw,
+      RuntimeUsageCoverageListSchema,
+      [],
+      { endpoint: "GET /api/runtimes/:id/usage/coverage" },
+    );
+  }
+
   async getRuntimeTaskActivity(
     runtimeId: string,
     params?: { tz?: string },
@@ -2414,6 +2517,36 @@ export class ApiClient {
       [],
       { endpoint: "GET /api/runtimes/:id/usage/by-hour" },
     );
+  }
+
+  async getRuntimeCostBudget(runtimeId: string): Promise<RuntimeCostBudget> {
+    const raw = await this.fetch<unknown>(`/api/runtimes/${runtimeId}/budget`);
+    return parseWithFallback<RuntimeCostBudget>(raw, RuntimeCostBudgetSchema, EMPTY_RUNTIME_COST_BUDGET, {
+      endpoint: "GET /api/runtimes/:id/budget",
+    });
+  }
+
+  // Full replace: scopes missing from `input` are removed server-side.
+  //
+  // The write is workspace governance, but the echoed body is runtime data: an
+  // admin writing a budget on another member's PRIVATE runtime may not read its
+  // spend, so the server saves the budget and answers 204 with no body rather
+  // than handing back figures GET would refuse. `this.fetch` maps 204 to
+  // undefined (same as `deleteRuntime`), so answer the empty budget — the
+  // mutation invalidates the budget query and the refetch renders whatever this
+  // caller is actually allowed to see.
+  async updateRuntimeCostBudget(
+    runtimeId: string,
+    input: RuntimeCostBudgetInput,
+  ): Promise<RuntimeCostBudget> {
+    const raw = await this.fetch<unknown>(`/api/runtimes/${runtimeId}/budget`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    });
+    if (raw === undefined || raw === null) return EMPTY_RUNTIME_COST_BUDGET;
+    return parseWithFallback<RuntimeCostBudget>(raw, RuntimeCostBudgetSchema, EMPTY_RUNTIME_COST_BUDGET, {
+      endpoint: "PUT /api/runtimes/:id/budget",
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -2690,18 +2823,6 @@ export class ApiClient {
     return parseWithFallback<AgentTask[]>(raw, AgentTaskListSchema, [], {
       endpoint: "GET /api/issues/:id/task-runs",
     });
-  }
-
-  async createTaskSupplement(issueId: string, taskId: string, content: string, clientRequestId: string): Promise<Comment> {
-    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/tasks/${taskId}/supplements`, {
-      method: "POST",
-      body: JSON.stringify({ content, client_request_id: clientRequestId }),
-    });
-    const comment = parseWithFallback<Comment>(raw, CommentSchema, EMPTY_COMMENT, {
-      endpoint: "POST /api/issues/:id/tasks/:taskId/supplements",
-    });
-    if (!comment.id) throw new Error("Invalid additional-message response");
-    return comment;
   }
 
   async retryTaskSupplement(issueId: string, taskId: string, commentId: string): Promise<void> {
@@ -3057,8 +3178,21 @@ export class ApiClient {
       credentials: "include",
     });
     if (!res.ok) {
-      if (res.status === 401) this.handleUnauthorized(credentialUsed);
-      throw new Error(await this.parseErrorMessage(res, `Publishing failed: ${res.status}`));
+      // Same shape as uploadFile: this path bypasses `this.fetch`, so it has to
+      // run the session guards itself — including the fork's suspended-account
+      // 403, which is a valid session the server refuses to act for.
+      const { message, body } = await this.parseErrorBody(res, `Publishing failed: ${res.status}`);
+      if (res.status === 401) {
+        this.handleUnauthorized(credentialUsed);
+      } else if (
+        res.status === 403 &&
+        body &&
+        typeof body === "object" &&
+        (body as { code?: unknown }).code === ACCOUNT_SUSPENDED_CODE
+      ) {
+        this.handleAccountSuspended(credentialUsed);
+      }
+      throw new Error(message);
     }
     const raw = (await res.json()) as unknown;
     return parseWithFallback(raw, PluginPackageSchema, EMPTY_PLUGIN_PACKAGE, {
@@ -3452,6 +3586,79 @@ export class ApiClient {
     });
   }
 
+  // Issue templates
+  async listIssueTemplates(includeArchived = false): Promise<IssueTemplateSummary[]> {
+    const query = includeArchived ? "?include_archived=true" : "";
+    const raw = await this.fetch(`/api/issue-templates${query}`);
+    return parseWithFallback(raw, IssueTemplateSummaryListSchema, EMPTY_ISSUE_TEMPLATE_SUMMARY_LIST, {
+      endpoint: "listIssueTemplates",
+    });
+  }
+
+  async getIssueTemplate(id: string): Promise<IssueTemplate> {
+    const raw = await this.fetch(`/api/issue-templates/${id}`);
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "getIssueTemplate",
+    });
+  }
+
+  async createIssueTemplate(data: CreateIssueTemplateRequest): Promise<IssueTemplate> {
+    const raw = await this.fetch("/api/issue-templates", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "createIssueTemplate",
+    });
+  }
+
+  async updateIssueTemplate(id: string, data: UpdateIssueTemplateRequest): Promise<IssueTemplate> {
+    const raw = await this.fetch(`/api/issue-templates/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "updateIssueTemplate",
+    });
+  }
+
+  async archiveIssueTemplate(id: string): Promise<IssueTemplate> {
+    const raw = await this.fetch(`/api/issue-templates/${id}/archive`, { method: "POST" });
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "archiveIssueTemplate",
+    });
+  }
+
+  async unarchiveIssueTemplate(id: string): Promise<IssueTemplate> {
+    const raw = await this.fetch(`/api/issue-templates/${id}/unarchive`, { method: "POST" });
+    return parseWithFallback(raw, IssueTemplateDetailSchema, EMPTY_ISSUE_TEMPLATE_DETAIL, {
+      endpoint: "unarchiveIssueTemplate",
+    });
+  }
+
+  async deleteIssueTemplate(id: string): Promise<void> {
+    await this.fetch(`/api/issue-templates/${id}`, { method: "DELETE" });
+  }
+
+  /**
+   * Instantiate a template: parse its {{variable}} tokens, validate the
+   * supplied values (missing / redundant / illegal all fail), interpolate them
+   * into title/content, apply the template's defaults with live validation, and
+   * return a prefilled new-issue payload. Never creates an issue; idempotent.
+   */
+  async instantiateIssueTemplate(
+    id: string,
+    data: InstantiateIssueTemplateRequest,
+  ): Promise<InstantiatedIssuePayload> {
+    const raw = await this.fetch(`/api/issue-templates/${id}/instantiate`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, InstantiatedIssuePayloadSchema, EMPTY_INSTANTIATED_ISSUE_PAYLOAD, {
+      endpoint: "instantiateIssueTemplate",
+    });
+  }
+
   // Incremental attach: POST /skills/add only inserts the given ids (the
   // server upserts with ON CONFLICT DO NOTHING), so callers don't need to
   // read the agent's current skill set first.
@@ -3531,8 +3738,17 @@ export class ApiClient {
     });
 
     if (!res.ok) {
-      if (res.status === 401) this.handleUnauthorized(credentialUsed);
-      const message = await this.parseErrorMessage(res, `Upload failed: ${res.status}`);
+      const { message, body } = await this.parseErrorBody(res, `Upload failed: ${res.status}`);
+      if (res.status === 401) {
+        this.handleUnauthorized(credentialUsed);
+      } else if (
+        res.status === 403 &&
+        body &&
+        typeof body === "object" &&
+        (body as { code?: unknown }).code === ACCOUNT_SUSPENDED_CODE
+      ) {
+        this.handleAccountSuspended(credentialUsed);
+      }
       this.logger.error(`← ${res.status} /api/upload-file`, { rid, duration: `${Date.now() - start}ms`, error: message });
       throw new Error(message);
     }
@@ -3878,6 +4094,13 @@ export class ApiClient {
       text: await res.text(),
       originalContentType: res.headers.get("X-Original-Content-Type") ?? "",
     };
+  }
+
+  async getOfficeConfig(id: string): Promise<OfficeConfig> {
+    const raw = await this.fetch<unknown>(`/api/attachments/${id}/office-config`);
+    return parseWithFallback(raw, OfficeConfigResponseSchema, EMPTY_OFFICE_CONFIG, {
+      endpoint: "GET /api/attachments/{id}/office-config",
+    });
   }
 
   // Fetches the raw bytes of an attachment through the unified download

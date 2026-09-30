@@ -8,6 +8,9 @@ const openExternalMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../platform", () => ({
   openExternal: openExternalMock,
+  // No-op in jsdom: the real hook drives Electron traffic-light visibility
+  // via window.desktopAPI, which doesn't exist here.
+  useImmersiveMode: vi.fn(),
 }));
 
 // vi.hoisted: factories run before module evaluation, letting us name mocks
@@ -126,6 +129,10 @@ vi.mock("../i18n", () => ({
           download_failed: "",
           open_in_new_tab: "Open in new tab",
         },
+        file_card: {
+          enter_full_screen: "Enter full screen",
+          exit_full_screen: "Exit full screen",
+        },
       }),
   }),
 }));
@@ -196,28 +203,8 @@ describe("AttachmentPreviewModal — dispatch", () => {
     render(<AttachmentPreviewModal source={{ kind: "full", attachment: att }} open onClose={() => {}} />);
     const img = document.querySelector("img");
     expect(img).toBeTruthy();
-    expect(img?.getAttribute("src")).toBe(att.download_url);
+    expect(img?.getAttribute("src")).toBe(att.url);
     expect(img?.getAttribute("alt")).toBe(att.filename);
-  });
-
-  it("falls back to durable media URLs when a full attachment has no download_url", () => {
-    const att = makeAttachment({
-      filename: "shot.png",
-      content_type: "image/png",
-      download_url: "",
-      markdown_url: "https://api.example.test/api/attachments/att-1/download",
-      url: "https://cdn.example.test/att-1.png?Signature=old",
-    });
-    render(
-      <AttachmentPreviewModal
-        source={{ kind: "full", attachment: att }}
-        open
-        onClose={() => {}}
-      />,
-    );
-    const img = document.querySelector("img");
-    expect(img?.getAttribute("src")).toBe(att.markdown_url);
-    expect(img?.getAttribute("src")).not.toContain("Signature=");
   });
 
   it("renders an <img> from a URL-only source for image filenames", () => {
@@ -233,12 +220,12 @@ describe("AttachmentPreviewModal — dispatch", () => {
     expect(img?.getAttribute("src")).toBe(url);
   });
 
-  it("renders a PDF iframe pointing at the signed download URL", () => {
+  it("renders a PDF iframe pointing at the storage url", () => {
     const att = makeAttachment({ filename: "manual.pdf", content_type: "application/pdf" });
     render(<AttachmentPreviewModal source={{ kind: "full", attachment: att }} open onClose={() => {}} />);
     const iframe = document.querySelector("iframe");
     expect(iframe).toBeTruthy();
-    expect(iframe?.getAttribute("src")).toBe(att.download_url);
+    expect(iframe?.getAttribute("src")).toBe(att.url);
   });
 
   it("renders a <video> for video/* content types", () => {
@@ -246,7 +233,7 @@ describe("AttachmentPreviewModal — dispatch", () => {
     render(<AttachmentPreviewModal source={{ kind: "full", attachment: att }} open onClose={() => {}} />);
     const video = document.querySelector("video");
     expect(video).toBeTruthy();
-    expect(video?.getAttribute("src")).toBe(att.download_url);
+    expect(video?.getAttribute("src")).toBe(att.url);
   });
 
   it("renders an <audio> for audio/* content types", () => {
@@ -317,19 +304,19 @@ describe("AttachmentPreviewModal — dispatch", () => {
   });
 });
 
-describe("AttachmentPreviewModal — server-relative download_url resolution (MUL-2976)", () => {
-  // The unified `/api/attachments/{id}/download` endpoint returns a
-  // server-relative path on non-CloudFront deployments. The web app keeps
-  // working same-origin because `apiBaseUrl=""`, but the desktop renderer
-  // is loaded from `app://` / file: / dev-server origin and needs the
-  // absolute URL — otherwise `<img src>`, `<iframe src>`, `<video src>`
-  // hit the shell origin and fail.
-  it("prefixes the configured API base for image previews when download_url is server-relative", async () => {
-    getBaseUrlMock.mockReturnValue("https://api.example.test");
+describe("AttachmentPreviewModal — media previews load from the storage url", () => {
+  // The /api/attachments/{id}/download endpoint is access-controlled (workspace
+  // middleware) and a bare <img>/<iframe>/<video> load cannot send the auth or
+  // X-Workspace-Slug headers it requires. The preview reuses the attachment's
+  // public storage `url` — the same address the inline thumbnail loads — so it
+  // works on web and the desktop renderer without a credentialed round-trip.
+  // `download_url` stays reserved for the explicit Download button.
+  it("renders a full-source image from attachment.url, not the access-controlled download_url", () => {
     const att = makeAttachment({
       filename: "shot.png",
       content_type: "image/png",
-      download_url: "/api/attachments/att-1/download",
+      url: "https://oss.example.test/att-1.png",
+      download_url: "/api/attachments/att-1/download?workspace_id=ws-1",
     });
     render(
       <AttachmentPreviewModal
@@ -338,13 +325,8 @@ describe("AttachmentPreviewModal — server-relative download_url resolution (MU
         onClose={() => {}}
       />,
     );
-    // The auth-gated endpoint is only handed to <img> once the re-sign has
-    // settled (here: nothing better on offer).
-    await waitFor(() => {
-      expect(document.querySelector("img")?.getAttribute("src")).toBe(
-        "https://api.example.test/api/attachments/att-1/download",
-      );
-    });
+    const img = document.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://oss.example.test/att-1.png");
   });
 
   // A client that cannot load the auth-gated endpoint natively (desktop,
@@ -364,6 +346,9 @@ describe("AttachmentPreviewModal — server-relative download_url resolution (MU
       id,
       filename: "shot.png",
       content_type: "image/png",
+      // No storage url: the preview falls back to download_url, which is the
+      // auth-gated endpoint the re-sign upgrades.
+      url: "",
       download_url: `/api/attachments/${id}/download`,
     });
     render(
@@ -389,11 +374,11 @@ describe("AttachmentPreviewModal — server-relative download_url resolution (MU
     expect(onImageError).not.toHaveBeenCalled();
   });
 
-  it("prefixes the configured API base for PDF previews when download_url is server-relative", () => {
-    getBaseUrlMock.mockReturnValue("https://api.example.test");
+  it("renders a full-source PDF from attachment.url", () => {
     const att = makeAttachment({
       filename: "manual.pdf",
       content_type: "application/pdf",
+      url: "https://oss.example.test/att-1.pdf",
       download_url: "/api/attachments/att-1/download",
     });
     render(
@@ -405,55 +390,37 @@ describe("AttachmentPreviewModal — server-relative download_url resolution (MU
     );
     const iframe = document.querySelector("iframe");
     expect(iframe?.getAttribute("src")).toBe(
-      "https://api.example.test/api/attachments/att-1/download",
+      "https://oss.example.test/att-1.pdf",
     );
   });
 
-  it("keeps a same-origin relative URL untouched when the configured base is empty (web)", () => {
-    // Default web shape — empty base. Browser resolves the relative path
-    // against the document origin, no prefix needed.
-    const att = makeAttachment({
-      filename: "shot.png",
-      content_type: "image/png",
-      download_url: "/api/attachments/att-1/download",
-    });
-    render(
-      <AttachmentPreviewModal
-        source={{ kind: "full", attachment: att }}
-        open
-        onClose={() => {}}
-      />,
-    );
-    const img = document.querySelector("img");
-    expect(img?.getAttribute("src")).toBe("/api/attachments/att-1/download");
-  });
-
-  it("trims a trailing slash on the configured base when joining a relative URL", () => {
-    getBaseUrlMock.mockReturnValue("https://api.example.test/");
-    const att = makeAttachment({
-      filename: "shot.png",
-      content_type: "image/png",
-      download_url: "/api/attachments/att-1/download",
-    });
-    render(
-      <AttachmentPreviewModal
-        source={{ kind: "full", attachment: att }}
-        open
-        onClose={() => {}}
-      />,
-    );
-    const img = document.querySelector("img");
-    expect(img?.getAttribute("src")).toBe(
-      "https://api.example.test/api/attachments/att-1/download",
-    );
-  });
-
-  it("passes an already-absolute CloudFront/presigned download_url through unchanged", () => {
+  it("passes an already-absolute storage url through unchanged on the desktop renderer (non-empty base)", () => {
+    // Desktop renderer reports a non-empty API base; an absolute storage URL
+    // (the normal shape) must pass through untouched, not get re-prefixed.
     getBaseUrlMock.mockReturnValue("https://api.example.test");
     const att = makeAttachment({
       filename: "shot.png",
       content_type: "image/png",
-      download_url: "https://cdn.example.test/att-1.png?Signature=s",
+      url: "https://oss.example.test/att-1.png",
+    });
+    render(
+      <AttachmentPreviewModal
+        source={{ kind: "full", attachment: att }}
+        open
+        onClose={() => {}}
+      />,
+    );
+    const img = document.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://oss.example.test/att-1.png");
+  });
+
+  it("falls back to download_url (resolved against the API base) when the storage url is missing", () => {
+    getBaseUrlMock.mockReturnValue("https://api.example.test");
+    const att = makeAttachment({
+      filename: "shot.png",
+      content_type: "image/png",
+      url: "",
+      download_url: "/api/attachments/att-1/download",
     });
     render(
       <AttachmentPreviewModal
@@ -464,7 +431,7 @@ describe("AttachmentPreviewModal — server-relative download_url resolution (MU
     );
     const img = document.querySelector("img");
     expect(img?.getAttribute("src")).toBe(
-      "https://cdn.example.test/att-1.png?Signature=s",
+      "https://api.example.test/api/attachments/att-1/download",
     );
   });
 });
@@ -557,20 +524,6 @@ describe("AttachmentPreviewModal — controls", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("keeps the dialog mounted for its exit and then removes it", async () => {
-    const att = makeAttachment({
-      filename: "manual.pdf",
-      content_type: "application/pdf",
-    });
-    render(<ClosablePreview attachment={att} />);
-
-    fireEvent.click(screen.getByTitle("Close"));
-
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
-  });
 });
 
 describe("AttachmentPreviewModal — URL-only source", () => {

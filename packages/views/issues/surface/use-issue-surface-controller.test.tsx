@@ -372,6 +372,31 @@ describe("useIssueSurfaceController", () => {
     );
   });
 
+  // Fix wave 3b: the list-path fetch (statusIssuesQuery) must include the
+  // archive bucket when the active status filter explicitly selects it, and
+  // must key that fetch separately from the default (no-archive) view.
+  it("fetches the archive bucket via the Table channel when the status filter selects archive", async () => {
+    const store = getIssueSurfaceViewStore("workspace:all:archive-filter");
+    store.getState().toggleStatusFilter("archive");
+
+    const { result } = renderHook(
+      () =>
+        useIssueSurfaceController({
+          scope: { type: "workspace", actorKind: "all" },
+          modes: ["board", "list", "swimlane"],
+        }),
+      { wrapper: makeWrapper(qc, "workspace:all:archive-filter") },
+    );
+
+    await waitFor(() =>
+      expect(listIssues).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "archive" }),
+      ),
+    );
+
+    expect(result.current.visibleStatuses).toEqual(["archive"]);
+  });
+
   it("does not subscribe List to the legacy issue endpoint", async () => {
     const legacyListIssues = vi.fn(() => never<ListIssuesResponse>());
     const tableRows = vi.fn(async (request: any) => ({

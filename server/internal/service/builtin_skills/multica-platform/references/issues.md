@@ -10,6 +10,8 @@ Product contracts the runtime brief does not fully encode.
 - [Sub-issues: todo starts work now, backlog parks it](#sub-issues-todo-starts-work-now-backlog-parks-it)
 - [Incorrect to correct](#incorrect-to-correct)
 
+To attach a local file to an existing issue description, use `multica issue update <id> --attachment <local-path>`. The CLI appends the file's Markdown reference to the end of the description; to replace an image, also use `--description-file` to remove the old reference. Do not put local filesystem paths in the description.
+
 ## PR linking and auto-complete
 
 A PR is linked to an issue when its **title** or **branch name** contains a
@@ -234,8 +236,8 @@ Archival does not move issues automatically. Historical issues on previously
 archived statuses remain readable via an explicit status filter.
 
 - **`backlog`** parks an agent-assigned issue: the assignee is set but no task
-  fires. Moving `backlog → todo` (or any non-done/non-cancelled status) enqueues
-  the assigned agent then.
+  fires. Moving `backlog → todo` (or any status that is not `done`, `cancelled`
+  or `archive`) enqueues the assigned agent then.
 - **`in_progress` / `in_review`** are agent-managed CLI mutations, not automatic
   side effects of a task starting or finishing. The runtime brief asks agents to
   write the state the issue is in whenever their work changes it — not from
@@ -262,9 +264,9 @@ archived statuses remain readable via an explicit status filter.
   (`Closes MUL-XXXX`), the server moves it to `done` itself (see PR linking and
   auto-complete) — you do not also need to flip it manually.
 - **`cancelled`** is a terminal, user-driven decision to close the issue. Like
-  `done` it enqueues no new agent work, but it does **not** stop tasks already in
-  flight — a run in progress keeps going. To stop a running task, cancel the
-  task itself.
+  `done` it enqueues no new agent work, and — unlike `archive` — it does **not**
+  stop tasks already in flight: a run in progress keeps going. To stop a running
+  task, cancel the task itself.
   A cancelled issue may also be marked as a **duplicate** of another issue
   (`GET /api/issues/<id>/duplicates` shows both sides; issue responses carry
   the original as `duplicate_of` with its id, identifier, title and status
@@ -273,6 +275,11 @@ archived statuses remain readable via an explicit status filter.
   when it is really separate work. Marking logs `duplicate_marked` on the
   duplicate and `duplicate_added` on the original; removing the mark logs
   `duplicate_unmarked` / `duplicate_removed` (`multica issue timeline --action`).
+- **`archive`** (a built-in issue status in the closed lifecycle; unrelated to
+  archiving a custom status definition above) retires the issue: moving into it
+  cancels in-flight tasks, and nothing — comments, @mentions, rerun, or merged
+  PRs — starts a new run until the issue is restored to an active status.
+  Restoring sweeps any leftover tasks and does not itself enqueue.
 - **Failed issue-triggered tasks** may roll an issue from `in_progress` back to
   `todo` when no active task / retry remains — that is the main server-owned
   status write on the agent-run path.
@@ -312,8 +319,9 @@ to coordinate with.
 ## Sub-issues: todo starts work now, backlog parks it
 
 On an agent-assigned issue, create status decides whether the assignee fires
-immediately. A non-backlog status (e.g. `todo`) enqueues the agent at create
-time; `backlog` sets the assignee without triggering.
+immediately. An active create status (e.g. `todo`) enqueues the agent at
+create time; `backlog` parks it, and `archive` never
+enqueues.
 
 Parallel children — all start now:
 
@@ -335,10 +343,11 @@ Creating every serial step as `todo` enqueues the whole chain at once.
 `--stage <N>` (N >= 1) groups sub-issues under the same parent into ordered
 stages. The server **tries once to wake the parent assignee when a whole stage
 finishes** — i.e. every sub-issue in the lowest unfinished stage has reached a
-terminal status (`done`/`cancelled`); a notification that fails is not replayed.
-A completion that does not close a stage is silent (no comment, no wake). A
-sibling set with **no** stages is one implicit stage, so the parent is woken
-once when the *last* sub-issue finishes — not on every child.
+terminal status (`done`/`cancelled`/`archive` — archiving a sub-issue also
+closes its stage); a notification that fails is not replayed. A completion that
+does not close a stage is silent (no comment, no wake). A sibling set with
+**no** stages is one implicit stage, so the parent is woken once when the
+*last* sub-issue finishes — not on every child.
 
 Advancement is agent-driven: the server only detects the closed barrier and
 wakes the parent assignee, who then decides whether to promote the next stage's

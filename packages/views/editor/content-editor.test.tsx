@@ -1,6 +1,6 @@
+import { createRef, useState } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { createRef, useState } from "react";
 import type { Attachment } from "@multica/core/types";
 import type { UploadResult } from "@multica/core/hooks/use-file-upload";
 
@@ -192,6 +192,17 @@ describe("ContentEditor", () => {
     fireEvent.mouseDown(screen.getByTestId("prosemirror"));
 
     expect(mockFocus).not.toHaveBeenCalled();
+  });
+
+  it("sets markdown content through the imperative ref", () => {
+    const ref = createRef<ContentEditorRef>();
+    render(<ContentEditor ref={ref} placeholder="Add description..." />);
+
+    ref.current?.setMarkdown("## Template\n\nBody");
+
+    expect(mockSetContent).toHaveBeenCalledWith("## Template\n\nBody", {
+      contentType: "markdown",
+    });
   });
 
   it("syncs editor content when value changes externally and editor is unfocused", () => {

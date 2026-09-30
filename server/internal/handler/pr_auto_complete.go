@@ -110,7 +110,9 @@ func (h *Handler) decidePRAutoComplete(ctx context.Context, ws db.Workspace, iss
 	// An unresolvable custom key is returned unchanged and treated as not
 	// terminal, the same direction the previous merge gate took.
 	effective := resolver.Effective(ctx, h.issueStatusCatalog(), issue.Status)
-	if effective == "done" || effective == "cancelled" {
+	// archive (fork status #39) is retired: a PR merging later must not
+	// resurrect it. It has no catalog row, so Effective returns it unchanged.
+	if effective == "done" || effective == "cancelled" || issue.Status == "archive" {
 		d.State = prAutoCompleteTerminal
 		return d, nil
 	}

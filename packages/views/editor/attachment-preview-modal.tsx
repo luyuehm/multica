@@ -11,7 +11,7 @@
  * rather than looked at (Markdown, text) render on a centered sheet that
  * keeps the app's own theme.
  *
- * Single viewer for every previewable kind. Handles 7 PreviewKinds:
+ * Single viewer for every previewable kind. Handles 8 PreviewKinds:
  *
  *   - image : <img> on the shared ZoomCanvas — fit on open, then wheel /
  *             drag / pinch / double-click / keyboard zoom, same controls as
@@ -33,8 +33,15 @@
  *                `allow-same-origin` is intentionally NOT included.
  *   - text     : fetch text, highlight with lowlight if the extension
  *                maps to a known hljs language; otherwise plain <pre>.
+ *   - office   : OnlyOffice DocEditor — fetches config via getOfficeConfig,
+ *                then loads the ONLYOFFICE Document Server JS bundle and
+ *                initializes DocEditor in an inline placeholder div.
  *
- * Media types load directly from the CloudFront signed `download_url`.
+ * Media types load directly from the attachment's storage `url` — the same
+ * publicly-reachable address the inline thumbnail renders from — so the preview
+ * works without the auth/workspace headers a bare media-element load can't
+ * send. The `download_url` endpoint stays reserved for the explicit Download
+ * button (it re-signs through the API client).
  * Text types go through `/api/attachments/{id}/content` to sidestep
  * CloudFront CORS (not configured) + Content-Disposition: attachment.
  */
@@ -98,6 +105,8 @@ import { ZoomCanvas, ZoomControls } from "./zoom-canvas";
 import type { Size } from "./utils/zoom-transform";
 import { HtmlPreviewBody } from "./html-preview-body";
 import { CodeBlockStatic } from "./code-block-static";
+import { OfficeAttachmentPreview } from "./office-attachment-preview";
+import { UnsupportedFallback } from "./attachment-preview-fallback";
 
 // ---------------------------------------------------------------------------
 // Preview source — full attachment, or URL-only (media types only)
@@ -151,21 +160,27 @@ interface PreviewState {
   kind: PreviewKind | null;
 }
 
+// Media preview elements (<img>/<iframe>/<video>/<audio>) load their src
+// directly in the browser, carrying no auth or workspace headers. Use the
+// attachment's own storage `url` — the same publicly-reachable address the
+// inline thumbnail already renders from — instead of the access-controlled
+// `/api/attachments/{id}/download` endpoint, which needs the X-Workspace-Slug
+// header the JS API client injects but a bare media-element load cannot send
+// (it 400s on web in proxy mode and fails on the desktop renderer, whose
+// cross-origin requests authenticate with a Bearer token an <img> can't
+// attach). `download_url` stays reserved for the explicit Download button.
+// Fall back to `download_url` only when `url` is missing.
+//
+// `resolvePublicFileUrl` resolves any server-relative form against the
+// configured API base (a no-op for the absolute storage URLs `url` normally
+// holds) so the desktop renderer, loaded from a non-API origin, still points
+// at a reachable address.
 function resolvePreviewMediaUrl(attachment: Attachment): string {
-  const raw =
-    attachment.download_url || attachment.markdown_url || attachment.url;
+  const raw = attachment.url || attachment.download_url;
   return resolvePublicFileUrl(raw) ?? raw;
 }
 
 function normalize(source: PreviewSource): PreviewState {
-  // Resolve any server-relative URL (e.g. `/api/attachments/{id}/download`
-  // returned by the unified-endpoint metadata path when no CloudFront
-  // signer is configured) against the configured API base. Web with the
-  // default empty base keeps the relative path and resolves it against
-  // the page origin — same behaviour as before this PR. Desktop renderer
-  // (loaded from `app://` / file: / dev-server origin) needs the absolute
-  // form so `<img src>` / `<iframe src>` / `<video src>` actually point at
-  // the API server instead of the shell origin.
   if (source.kind === "full") {
     return {
       filename: source.attachment.filename,
@@ -538,6 +553,7 @@ const KIND_ICONS: Record<PreviewKind, LucideIcon> = {
   markdown: FileText,
   html: FileCode,
   text: FileCode,
+  office: FileText,
 };
 
 // Top bar and stage live together because the image kind's zoom controls sit
@@ -940,7 +956,7 @@ function PreviewContent({
   // source whose filename later resolves to a text kind would otherwise
   // crash on a null id.
   if (
-    (kind === "markdown" || kind === "html" || kind === "text") &&
+    (kind === "markdown" || kind === "html" || kind === "text" || kind === "office") &&
     !state.attachmentId
   ) {
     return (
@@ -1027,6 +1043,15 @@ function PreviewContent({
           )}
         />
       );
+    case "office":
+      return (
+        <div className="h-full pb-4">
+          <OfficeAttachmentPreview
+            attachmentId={state.attachmentId!}
+            onDownload={onDownload}
+          />
+        </div>
+      );
   }
 }
 
@@ -1111,34 +1136,6 @@ function TextBackedPreview({
   }
   if (!query.data) return null;
   return <>{render(query.data.text)}</>;
-}
-
-// ---------------------------------------------------------------------------
-// Fallback — used for 413 / 415 / unknown kinds. Sits on the stage, so dark.
-// ---------------------------------------------------------------------------
-
-function UnsupportedFallback({
-  message,
-  onDownload,
-}: {
-  message: string;
-  onDownload: () => void;
-}) {
-  const { t } = useT("editor");
-  return (
-    <div className="dark flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-      <FileText className="size-8 text-muted-foreground" />
-      <p className="text-body text-muted-foreground">{message}</p>
-      <button
-        type="button"
-        className="inline-flex items-center gap-2 rounded-md border border-input bg-secondary px-3 py-1.5 text-body text-foreground transition-colors hover:bg-muted"
-        onClick={onDownload}
-      >
-        <Download className="size-4" />
-        {t(($) => $.image.download)}
-      </button>
-    </div>
-  );
 }
 
 // Re-export the predicate from the dispatch util so entry-point components

@@ -15,7 +15,12 @@ const { downloadMock, getBaseUrlMock, toastErrorMock } = vi.hoisted(() => ({
   toastErrorMock: vi.fn(),
 }));
 
-vi.mock("../platform", () => ({ openExternal: vi.fn() }));
+vi.mock("../platform", () => ({
+  openExternal: vi.fn(),
+  // No-op in jsdom: the real hook drives Electron traffic-light visibility
+  // via window.desktopAPI, which doesn't exist here.
+  useImmersiveMode: vi.fn(),
+}));
 
 vi.mock("@multica/core/api", () => ({
   api: { getBaseUrl: getBaseUrlMock, getAttachmentTextContent: vi.fn() },
@@ -66,6 +71,10 @@ const STRINGS: Record<string, Record<string, string>> = {
     previous: "Previous",
     next: "Next",
     sequence_position: "{{index}} / {{total}}",
+  },
+  file_card: {
+    enter_full_screen: "Enter full screen",
+    exit_full_screen: "Exit full screen",
   },
 };
 
@@ -388,7 +397,7 @@ describe("PreviewSequenceProvider", () => {
       });
 
       const image = screen.getByRole("dialog").querySelector("img")!;
-      expect(image.getAttribute("src")).toBe(mixed[1]!.download_url);
+      expect(image.getAttribute("src")).toBe(mixed[1]!.url);
       expectCounter("2 / 3");
       expect(nextButton()).not.toBeDisabled();
       expect(toastErrorMock).not.toHaveBeenCalled();
@@ -400,7 +409,7 @@ describe("PreviewSequenceProvider", () => {
   it("does not blame the next image for an error on the frame still held", async () => {
     const [first, second] = [imageAttachment(1), imageAttachment(2)];
     const restoreDecode = stubDecode(function (this: HTMLImageElement) {
-      return this.src === first.download_url
+      return this.src === first.url
         ? Promise.resolve()
         : new Promise<void>(() => {});
     });
@@ -421,7 +430,7 @@ describe("PreviewSequenceProvider", () => {
       // The first image stays up while the second decodes; an error from it
       // is about the first file, not the one being opened.
       const held = screen.getByRole("dialog").querySelector("img")!;
-      expect(held.getAttribute("src")).toBe(first.download_url);
+      expect(held.getAttribute("src")).toBe(first.url);
       act(() => {
         fireEvent.error(held);
       });

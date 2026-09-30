@@ -97,7 +97,12 @@
     "fullscreen": "Plein écran"
   },
   "file_card": {
-    "uploading": "Envoi de {{filename}}"
+    "uploading": "Envoi de {{filename}}",
+    "preview": "Aperçu de {{filename}}",
+    "download": "Télécharger {{filename}}",
+    "preview_loading": "Chargement de l'aperçu...",
+    "preview_failed": "Échec du chargement de l'aperçu",
+    "close_preview": "Fermer l'aperçu"
   },
   "upload": {
     "failed": "Impossible d'envoyer {{filename}} : {{reason}}",
