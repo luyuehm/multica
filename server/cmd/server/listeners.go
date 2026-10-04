@@ -91,7 +91,7 @@ var publicRealtimePayloadKeys = map[string][]string{
 	protocol.EventTaskProgress:              {"task_id", "summary", "step", "total"},
 	protocol.EventTaskCompleted:             {"task_id", "issue_id", "status", "chat_session_id"},
 	protocol.EventTaskFailed:                {"task_id", "issue_id", "status", "chat_session_id"},
-	protocol.EventTaskMessage:               {"task_id", "issue_id", "seq", "type", "tool", "content", "input", "output", "created_at"},
+	protocol.EventTaskMessage:               {"task_id", "issue_id", "seq", "type", "tool", "call_id", "content", "input", "output", "output_truncated", "created_at"},
 	protocol.EventTaskActivity:              {"task_id", "issue_id", "activity", "after_seq"},
 	protocol.EventTaskCancelled:             {"task_id", "issue_id", "status", "chat_session_id"},
 
@@ -333,6 +333,30 @@ func registerListeners(bus *events.Bus, b realtime.Broadcaster) {
 			sendToRecipient(b, e, *uid)
 		}
 	})
+
+	// invitation:accepted / invitation:declined — also send to the invitee so
+	// their pending list updates. The actor is the invitee on every producer
+	// path, but they are usually NOT in the workspace room yet: a client binds
+	// its socket to the workspace it currently has open, so a user concluding
+	// an invitation with no workspace open (or a different one open) never
+	// receives the broadcast below and their stale pending row survives until
+	// restart (#8432). Pass excludeWorkspace so clients already in the room
+	// (reached via BroadcastToWorkspace in SubscribeAll) don't get it twice.
+	// invitation:revoked keeps its invitee_user_id routing above: its actor is
+	// the revoking admin, not the affected invitee.
+	for _, eventType := range []string{protocol.EventInvitationAccepted, protocol.EventInvitationDeclined} {
+		bus.Subscribe(eventType, func(e events.Event) {
+			if e.ActorID == "" {
+				return
+			}
+			data, err := json.Marshal(map[string]any{"type": e.Type, "payload": projectOutbound(e.Type, e.Payload), "actor_id": e.ActorID, "actor_type": e.ActorType})
+			if err != nil {
+				return
+			}
+			realtime.M.RecordEvent(e.Type)
+			b.SendToUser(e.ActorID, data, e.WorkspaceID)
+		})
+	}
 
 	// A Chat session is creator-private. Its initial title may be derived from
 	// the creator's first message, so the list-invalidation event must not be

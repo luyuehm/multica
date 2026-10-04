@@ -498,7 +498,7 @@ function UploadBulkSummary({ results }: { results: UploadBulkResult[] }) {
         {results.map((r, i) => (
           <div
             key={i}
-            className="flex items-center gap-2 rounded px-2 py-1.5 text-caption"
+            className="flex items-center gap-2 rounded-xs px-2 py-1.5 text-caption"
           >
             {r.status === "success" && (
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
@@ -869,7 +869,7 @@ function UploadForm({
               {bulkState.results.map((r, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-2 rounded px-2 py-1 text-caption"
+                  className="flex items-center gap-2 rounded-xs px-2 py-1 text-caption"
                 >
                   {r.status === "success" && (
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />

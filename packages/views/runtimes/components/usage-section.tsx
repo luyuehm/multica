@@ -21,6 +21,7 @@ import {
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import { useViewingTimezone } from "../../common/use-viewing-timezone";
 import {
+  cacheHitRatePercent,
   formatTokens,
   formatUsd,
   estimateCost,
@@ -199,9 +200,11 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
 
   const tokensTotal =
     totals.input + totals.output + totals.cacheRead + totals.cacheWrite;
-  const cacheableTokens = totals.input + totals.cacheRead;
-  const cacheHitRate =
-    cacheableTokens > 0 ? Math.round((totals.cacheRead / cacheableTokens) * 100) : 0;
+  const cacheHitRate = cacheHitRatePercent(
+    totals.input,
+    totals.cacheRead,
+    totals.cacheWrite,
+  );
 
   const costDelta = pctChange(totals.cost, prevTotals.cost);
   const locales = i18n.resolvedLanguage ?? i18n.language;
@@ -272,7 +275,14 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
       )}
       <CustomPricingBar usage={filtered} />
 
-      <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
+      {/* Stacks below `sm`, matching the Analytics tabs' KPI rows. Three
+          fixed columns leave ~70px of content width inside `KpiCard`'s p-5 at
+          a 390px viewport, and a `text-display` value ("960.1M", "$1,234.56")
+          is far wider than that — it painted past the card's right edge
+          instead of wrapping, because a number is one unbreakable token
+          (#7836). `divide-y` carries the separator through the stacked
+          orientation so the row still reads as one grouped card. */}
+      <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <KpiCard
           label={t(
             ($) =>
@@ -328,10 +338,12 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           accent={totals.cacheSavings > 0 ? "success" : "default"}
           hint={
             <span>
-              {t(($) => $.usage.kpi_cache_hint, {
-                pct: cacheHitRate,
-                reads: formatTokens(totals.cacheRead),
-              })}
+              {cacheHitRate == null
+                ? "—"
+                : t(($) => $.usage.kpi_cache_hint, {
+                    pct: cacheHitRate,
+                    reads: formatTokens(totals.cacheRead),
+                  })}
             </span>
           }
         />
@@ -913,7 +925,7 @@ function CostByList({
                     aria-label={t(($) => $.usage.cost_by_model_breakdown_aria)}
                     aria-expanded={isOpen}
                     onClick={() => toggle(row.key)}
-                    className="-ml-1 shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    className="-ml-1 shrink-0 rounded-xs p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     <ChevronRight
                       className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-90")}

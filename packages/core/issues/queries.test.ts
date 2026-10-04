@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 
@@ -434,9 +435,9 @@ describe("projectGanttIssuesOptions", () => {
   });
 });
 
-// `archive` (fork status #39) is opt-in: it is not a catalog category, and the
-// default board/list fan-out must stay at the 7 that are. Archived issues are
-// reached through an explicit status filter on the table channel instead.
+// `archive` (fork status #39) is a closed-lifecycle key, not a catalog
+// category, so the legacy bucket fan-out never requests it by name. Archived
+// issues are reached through an explicit status filter on the table channel.
 describe("PAGINATED_CATEGORIES — archive stays out of the default fetch", () => {
   let qc: QueryClient;
 
@@ -449,9 +450,11 @@ describe("PAGINATED_CATEGORIES — archive stays out of the default fetch", () =
     vi.restoreAllMocks();
   });
 
+  // Archive (fork status #39) is a closed-lifecycle KEY, never a bucket of its
+  // own: the server expands `closed` to include it.
   it("excludes archive from the paginated categories", () => {
     expect(PAGINATED_CATEGORIES).not.toContain("archive");
-    expect(PAGINATED_CATEGORIES).toHaveLength(7);
+    expect(PAGINATED_CATEGORIES).toEqual(["unstarted", "started", "done", "closed"]);
   });
 
   it("requests exactly those categories and never archive", async () => {
@@ -591,16 +594,51 @@ describe("issueIdentifierOptions", () => {
     ).rejects.toThrow("boom");
   });
 
-  it("passes the query's abort signal down so unmount cancels the lookup", async () => {
-    const getIssue = vi
-      .fn<(id: string, options?: { signal?: AbortSignal }) => Promise<Issue>>()
-      .mockResolvedValue(makeIssue(7));
-    installFakeIssueApi(getIssue);
+  it.each(["found", "missing"] as const)(
+    "shares a pending %s lookup across rapid observer remounts and caches its result",
+    async (outcome) => {
+      let resolveLookup!: (issue: Issue) => void;
+      let rejectLookup!: (error: Error) => void;
+      let abortedLookups = 0;
+      const getIssue = vi
+        .fn<(id: string, options?: { signal?: AbortSignal }) => Promise<Issue>>()
+        .mockImplementation((_id, options) => new Promise((resolve, reject) => {
+          resolveLookup = resolve;
+          rejectLookup = reject;
+          options?.signal?.addEventListener("abort", () => {
+            abortedLookups++;
+            reject(new DOMException("Unmounted", "AbortError"));
+          }, { once: true });
+        }));
+      installFakeIssueApi(getIssue);
 
-    await qc.fetchQuery(issueIdentifierOptions(WS_ID, "MUL-7"));
+      const options = issueIdentifierOptions(WS_ID, "MUL-7");
+      // Streaming rich content can remove the last mention observer before
+      // its response arrives, then render that same identifier again.
+      for (let i = 0; i < 20; i++) {
+        const observer = new QueryObserver(qc, options);
+        const unsubscribe = observer.subscribe(() => {});
+        unsubscribe();
+      }
 
-    expect(getIssue.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
-  });
+      expect(getIssue).toHaveBeenCalledTimes(1);
+      expect(abortedLookups).toBe(0);
+      const completed = qc.fetchQuery(options);
+      if (outcome === "found") {
+        resolveLookup(makeIssue(7));
+      } else {
+        rejectLookup(new ApiError("issue not found", 404, "Not Found"));
+      }
+      const expected = outcome === "found" ? makeIssue(7) : null;
+      await expect(completed).resolves.toEqual(expected);
+
+      const observer = new QueryObserver(qc, options);
+      const unsubscribe = observer.subscribe(() => {});
+      expect(observer.getCurrentResult().data).toEqual(expected);
+      expect(getIssue).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    },
+  );
 
   it("keys the query by workspace and identifier", () => {
     expect(issueKeys.identifier(WS_ID, "MUL-7")).toEqual([

@@ -219,6 +219,7 @@ describe("chatSendFailureToast", () => {
   it("names each decided refusal instead of the generic failure", () => {
     expect(chatSendFailureToast("invocation_not_allowed")).toBe("send_blocked_toast");
     expect(chatSendFailureToast("agent_runtime_required")).toBe("runtime_required_toast");
+    expect(chatSendFailureToast("runtime_access_denied")).toBe("runtime_access_denied_toast");
     expect(chatSendFailureToast("budget_exceeded")).toBe("send_blocked_budget_exceeded");
   });
 

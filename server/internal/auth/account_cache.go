@@ -17,13 +17,13 @@ const accountCachePrefix = "mul:auth:acct:"
 // *AccountStatusCache is safe to use — every method becomes a no-op or
 // reports a cache miss, and AccountGuard degrades to direct DB lookups.
 type AccountStatusCache struct {
-	rdb *redis.Client
+	rdb redis.UniversalClient
 }
 
 // NewAccountStatusCache returns a cache backed by rdb. Pass nil to disable
 // caching; the returned *AccountStatusCache is safe to call but never hits
 // Redis.
-func NewAccountStatusCache(rdb *redis.Client) *AccountStatusCache {
+func NewAccountStatusCache(rdb redis.UniversalClient) *AccountStatusCache {
 	if rdb == nil {
 		return nil
 	}

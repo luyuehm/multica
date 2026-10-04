@@ -23,6 +23,17 @@ import type { useT } from "../i18n";
 // sends the user to reconnect something that is already connected. The fix is a
 // reinstall on that machine, and the system comment the server leaves on the
 // issue carries the exact command.
+//
+// `runtime_access_denied` is another member of that family (PUCK-89): the
+// target is permitted but its agent owner cannot execute it on the selected
+// private runtime. No retry helps — the fix is making the runtime public or
+// rebinding/copying the agent to a runtime its owner can use.
+//
+// `runtime_profile_missing` is split from `runtime_unusable`
+// on the same rule: the CLI there runs perfectly and is missing a runtime
+// profile (DSH's `multica` profile, which supplies the protocol Multica
+// drives). "Reinstall the CLI" copy sends the user to re-run an install that
+// was never broken; the fix is installing the profile.
 type IssuesT = ReturnType<typeof useT<"issues">>["t"];
 
 // Full sentence — for tooltips and other surfaces with room to explain.
@@ -38,8 +49,12 @@ export function blockedReasonLabel(reasonCode: string, t: IssuesT): string {
       return t(($) => $.comment.trigger_blocked_issue_archived);
     case "runtime_unusable":
       return t(($) => $.comment.trigger_blocked_runtime_unusable);
+    case "runtime_profile_missing":
+      return t(($) => $.comment.trigger_blocked_runtime_profile_missing);
     case "agent_runtime_required":
       return t(($) => $.comment.trigger_blocked_agent_runtime_required);
+    case "runtime_access_denied":
+      return t(($) => $.comment.trigger_blocked_runtime_access_denied);
     case "budget_exceeded":
       return t(($) => $.comment.trigger_blocked_budget_exceeded);
     default:
@@ -61,8 +76,12 @@ export function blockedShortReasonLabel(reasonCode: string, t: IssuesT): string 
       return t(($) => $.comment.trigger_blocked_short_issue_archived);
     case "runtime_unusable":
       return t(($) => $.comment.trigger_blocked_short_runtime_unusable);
+    case "runtime_profile_missing":
+      return t(($) => $.comment.trigger_blocked_short_runtime_profile_missing);
     case "agent_runtime_required":
       return t(($) => $.comment.trigger_blocked_short_agent_runtime_required);
+    case "runtime_access_denied":
+      return t(($) => $.comment.trigger_blocked_short_runtime_access_denied);
     case "budget_exceeded":
       return t(($) => $.comment.trigger_blocked_short_budget_exceeded);
     default:

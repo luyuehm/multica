@@ -22,12 +22,14 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { PriorityIcon } from "./priority-icon";
 import { PriorityPicker, AssigneePicker, StartDatePicker, DueDatePicker } from "./pickers";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
+import { propertyIdFromViewKey } from "@multica/core/issues/stores/view-store";
 import { ProgressRing } from "./progress-ring";
 import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { CustomStatusChip, useIsCustomStatus } from "./custom-status-chip";
+import { IssueDuplicateOfMarker } from "./issue-duplicates";
 import { useIssueSurfaceActionsOptional } from "../surface/actions-context";
 function formatDate(date: string, locale: string): string {
   return formatDateOnly(date, { month: "short", day: "numeric" }, locale);
@@ -62,11 +64,24 @@ export const BoardCardContent = memo(function BoardCardContent({
   const timeAgo = useTimeAgo();
   const storeProperties = useViewStore((s) => s.cardProperties);
   const cardPropertyIds = useViewStore((s) => s.cardPropertyIds);
+  const viewMode = useViewStore((s) => s.viewMode);
+  const grouping = useViewStore((s) => s.grouping);
+  const swimlaneGrouping = useViewStore((s) => s.swimlaneGrouping);
+  const cardGrouping =
+    viewMode === "board"
+      ? grouping
+      : viewMode === "swimlane"
+        ? swimlaneGrouping
+        : null;
+  const groupedPropertyId = cardGrouping
+    ? propertyIdFromViewKey(cardGrouping)
+    : null;
   const cardWsId = useWorkspaceId();
   const { data: workspaceProperties = [] } = useQuery(propertyListOptions(cardWsId));
   // Custom properties toggled on in Display options, in toggle order, only
   // when this issue actually carries a value.
   const cardCustomProperties = cardPropertyIds
+    .filter((id) => id !== groupedPropertyId)
     .map((id) => workspaceProperties.find((p) => p.id === id))
     .filter((p): p is IssueProperty => !!p && issue.properties?.[p.id] !== undefined);
   const labels = issue.labels ?? [];
@@ -82,13 +97,15 @@ export const BoardCardContent = memo(function BoardCardContent({
   );
   const canEdit = editable && !!surfaceActions;
 
-  const showPriority = storeProperties.priority;
-  const showDescription = storeProperties.description && issue.description;
-  const showAssigneeSection = storeProperties.assignee;
   const hasAssignee = !!issue.assignee_type && !!issue.assignee_id;
+  const showPriority = storeProperties.priority && issue.priority !== "none";
+  const showDescription = storeProperties.description && issue.description;
+  const showAssigneeSection =
+    storeProperties.assignee && cardGrouping !== "assignee" && hasAssignee;
   const showStartDate = storeProperties.startDate && issue.start_date;
   const showDueDate = storeProperties.dueDate && issue.due_date;
-  const showProject = storeProperties.project && project;
+  const showProject =
+    storeProperties.project && cardGrouping !== "project" && project;
   const showChildProgress = storeProperties.childProgress && childProgress;
   const showLabels = storeProperties.labels && labels.length > 0;
   // Keeps the chip row from rendering an empty flex container when the status
@@ -114,7 +131,7 @@ export const BoardCardContent = memo(function BoardCardContent({
             <button
               type="button"
               aria-label={priorityLabel}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted/60"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded-xs hover:bg-muted/60"
             >
               <PriorityIcon priority={issue.priority} />
             </button>
@@ -180,6 +197,7 @@ export const BoardCardContent = memo(function BoardCardContent({
         <div className="flex items-center gap-1.5 min-w-0">
           {priorityIconNode}
           <p className="text-caption text-muted-foreground truncate">{issue.identifier}</p>
+          <IssueDuplicateOfMarker issue={issue} insideLink />
         </div>
         <IssueAgentActivityIndicator issueId={issue.id} />
       </div>
@@ -211,9 +229,14 @@ export const BoardCardContent = memo(function BoardCardContent({
               <span className="truncate">{project!.title}</span>
             </span>
           )}
-          {showLabels && labels.map((label) => (
+          {showLabels && labels.slice(0, 2).map((label) => (
             <LabelChip key={label.id} label={label} />
           ))}
+          {showLabels && labels.length > 2 && (
+            <span className="text-micro text-muted-foreground">
+              +{labels.length - 2}
+            </span>
+          )}
           {cardCustomProperties.map((property) => (
             <span
               key={property.id}

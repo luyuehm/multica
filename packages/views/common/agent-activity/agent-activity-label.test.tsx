@@ -16,6 +16,10 @@ function wrap(children: ReactNode) {
 
 const msg = (m: Partial<TaskMessagePayload>) => m as TaskMessagePayload;
 
+// ShimmerText paints a decorative, aria-hidden copy of the label; match only
+// the readable one (the same filter upstream's shimmer tests use).
+const SHIMMER_COPY = '[aria-hidden="true"] *';
+
 describe("AgentActivityLabel", () => {
   it("shows the tool label while a command is running", () => {
     wrap(
@@ -24,7 +28,7 @@ describe("AgentActivityLabel", () => {
         taskMessages={[msg({ type: "tool_use", tool: "bash" })]}
       />,
     );
-    expect(screen.getByText("Running a command")).toBeInTheDocument();
+    expect(screen.getByText("Running a command", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 
   it("names what a parked task is waiting on when the server sent a reason", () => {
@@ -35,7 +39,7 @@ describe("AgentActivityLabel", () => {
         waitReason="MUL-12"
       />,
     );
-    expect(screen.getByText("Waiting for MUL-12")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for MUL-12", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 
   it("falls back to the bare waiting label when no reason was sent", () => {
@@ -43,13 +47,13 @@ describe("AgentActivityLabel", () => {
       <AgentActivityLabel status="waiting_local_directory" taskMessages={[]} />,
     );
     expect(
-      screen.getByText("Waiting for local directory"),
+      screen.getByText("Waiting for local directory", { ignore: SHIMMER_COPY }),
     ).toBeInTheDocument();
   });
 
   it("shows Thinking when running with no messages yet", () => {
     wrap(<AgentActivityLabel status="running" taskMessages={[]} />);
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("Thinking", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 
   it("shows Typing while the agent streams text", () => {
@@ -59,7 +63,7 @@ describe("AgentActivityLabel", () => {
         taskMessages={[msg({ type: "text", content: "hi" })]}
       />,
     );
-    expect(screen.getByText("Typing")).toBeInTheDocument();
+    expect(screen.getByText("Typing", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 
   it("labels the real Codex tools (exec_command / patch_apply), not the Working fallback", () => {
@@ -72,7 +76,7 @@ describe("AgentActivityLabel", () => {
         taskMessages={[msg({ type: "tool_use", tool: "exec_command" })]}
       />,
     );
-    expect(screen.getByText("Running a command")).toBeInTheDocument();
+    expect(screen.getByText("Running a command", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 
   it("labels the Codex edit tool (patch_apply) as Making edits", () => {
@@ -82,7 +86,7 @@ describe("AgentActivityLabel", () => {
         taskMessages={[msg({ type: "tool_use", tool: "patch_apply" })]}
       />,
     );
-    expect(screen.getByText("Making edits")).toBeInTheDocument();
+    expect(screen.getByText("Making edits", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 
   it("shows Reconnecting when a reconnecting activity hint is set, overriding the tool stage", () => {
@@ -93,8 +97,8 @@ describe("AgentActivityLabel", () => {
         activity="reconnecting"
       />,
     );
-    expect(screen.getByText("Reconnecting")).toBeInTheDocument();
-    expect(screen.queryByText("Running a command")).not.toBeInTheDocument();
+    expect(screen.getByText("Reconnecting", { ignore: SHIMMER_COPY })).toBeInTheDocument();
+    expect(screen.queryByText("Running a command", { ignore: SHIMMER_COPY })).not.toBeInTheDocument();
   });
 
   it("keeps the tool label after a trailing tool_result (the inter-tool gap)", () => {
@@ -110,6 +114,6 @@ describe("AgentActivityLabel", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Reading files")).toBeInTheDocument();
+    expect(screen.getByText("Reading files", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
 });

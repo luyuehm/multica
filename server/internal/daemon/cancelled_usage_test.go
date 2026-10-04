@@ -67,6 +67,23 @@ func TestCancelledAccountingDeadlineAndWatchdogRetainUsage(t *testing.T) {
 	}
 }
 
+// A closed result channel racing a cancellation must still name the stop,
+// whichever select branch wins: both branches classify the same way.
+func TestCancelledAccountingClosedResultKeepsStopClassification(t *testing.T) {
+	d := newTestDaemon(t)
+	d.cancelledResultWait = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	msgs := make(chan agent.Message)
+	close(msgs)
+	results := make(chan agent.Result)
+	close(results)
+	got, _, err := d.executeAndDrain(ctx, sessionBackend{&agent.Session{Messages: msgs, Result: results}}, "unused", agent.ExecOptions{}, slog.Default(), "task", "", new(atomic.Int32))
+	if err != nil || got.Status != "cancelled" {
+		t.Fatalf("closed result during cancellation = %+v, %v; want cancelled", got, err)
+	}
+}
+
 func TestCancelledAccountingClosedResultDoesNotSucceed(t *testing.T) {
 	d := newTestDaemon(t)
 	msgs := make(chan agent.Message)

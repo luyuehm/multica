@@ -24,7 +24,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   localStorage.clear();
-  useIssueViewStore.setState({ statusFilters: [] });
+  useIssueViewStore.setState({ statusFilters: [], hiddenStatuses: [] });
   setCurrentWorkspace(null, null);
 });
 
@@ -33,14 +33,14 @@ afterEach(() => {
 });
 
 describe("useIssueViewStore hideStatus / showStatus", () => {
-  // Hiding a column is display state (`hiddenStatusCategories`) and is kept
-  // apart from the status FILTER (MUL-6243). The fork depends on that
+  // Hiding a column is display state (`hiddenStatuses`) and is kept
+  // apart from the status FILTER (MUL-6243, MUL-7240). The fork depends on that
   // separation: `archive` (status #39) is opt-in, and a board control that
   // reseeded `statusFilters` from the full category list would enroll it
   // without the user ever asking for archived work.
   it("hideStatus records a hidden column without touching the status filter", () => {
     useIssueViewStore.getState().hideStatus("todo");
-    expect(useIssueViewStore.getState().hiddenStatusCategories).toEqual(["todo"]);
+    expect(useIssueViewStore.getState().hiddenStatuses).toEqual(["todo"]);
     expect(useIssueViewStore.getState().statusFilters).toEqual([]);
   });
 
@@ -52,13 +52,13 @@ describe("useIssueViewStore hideStatus / showStatus", () => {
       "in_progress",
       "archive",
     ]);
-    expect(useIssueViewStore.getState().hiddenStatusCategories).toEqual(["todo"]);
+    expect(useIssueViewStore.getState().hiddenStatuses).toEqual(["todo"]);
   });
 
   it("showStatus un-hides a column and never seeds a status filter", () => {
-    useIssueViewStore.setState({ hiddenStatusCategories: ["todo", "done"] });
+    useIssueViewStore.setState({ hiddenStatuses: ["todo", "done"] });
     useIssueViewStore.getState().showStatus("todo");
-    expect(useIssueViewStore.getState().hiddenStatusCategories).toEqual(["done"]);
+    expect(useIssueViewStore.getState().hiddenStatuses).toEqual(["done"]);
     expect(useIssueViewStore.getState().statusFilters).toEqual([]);
   });
 });

@@ -43,6 +43,7 @@ export interface SkillListFilters {
   origins: SkillOriginType[];
   agents: string[];
   creators: string[];
+  labels: string[];
 }
 
 export const EMPTY_SKILL_FILTERS: SkillListFilters = {
@@ -50,6 +51,7 @@ export const EMPTY_SKILL_FILTERS: SkillListFilters = {
   origins: [],
   agents: [],
   creators: [],
+  labels: [],
 };
 
 // User-hideable columns. Name and the structural columns (checkbox, kebab)
