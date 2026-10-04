@@ -1163,6 +1163,10 @@ func writeIssueCreateAttachment(t *testing.T, name string) string {
 // server-side and appeared nowhere on web, desktop or mobile. The upload must
 // now precede the create and its markdown must land in the description.
 func TestRunIssueCreateAppendsAttachmentReferencesToDescription(t *testing.T) {
+	// RIC-908: skip the structured-description gate — this test exercises
+	// attachment reference mechanics, not description formatting, and the
+	// minimal free-form body keeps the body-preservation assertion focused.
+	t.Setenv("MULTICA_SKIP_DESC_VALIDATION", "1")
 	t.Chdir(t.TempDir())
 	srv := newIssueCreateAttachmentServer(t)
 
@@ -1220,6 +1224,9 @@ func TestRunIssueCreateKeepsDescriptionWhenAttachmentIsOnlyFile(t *testing.T) {
 // description, so appending the same reference again would render one file
 // twice.
 func TestRunIssueCreateDoesNotDuplicateReferencedAttachment(t *testing.T) {
+	// RIC-908: skip the structured-description gate — same rationale as
+	// TestRunIssueCreateAppendsAttachmentReferencesToDescription.
+	t.Setenv("MULTICA_SKIP_DESC_VALIDATION", "1")
 	t.Chdir(t.TempDir())
 	srv := newIssueCreateAttachmentServer(t)
 
