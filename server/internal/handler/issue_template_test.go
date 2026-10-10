@@ -451,7 +451,7 @@ func TestIssueTemplateEnabledToggle(t *testing.T) {
 		t.Skip("database not available")
 	}
 
-	id := createIssueTemplateForTest(t, "Toggle me")
+	id := createIssueTemplateForTest(t, map[string]any{"name": "Toggle me", "issue_title": "Toggle me"})
 	t.Cleanup(func() {
 		req := withURLParam(newRequest(http.MethodDelete, "/api/issue-templates/"+id+"?workspace_id="+testWorkspaceID, nil), "id", id)
 		testHandler.DeleteIssueTemplate(httptest.NewRecorder(), req)
@@ -559,8 +559,8 @@ func TestIssueTemplateReorder(t *testing.T) {
 		t.Skip("database not available")
 	}
 
-	first := createIssueTemplateForTest(t, "Reorder A")
-	second := createIssueTemplateForTest(t, "Reorder B")
+	first := createIssueTemplateForTest(t, map[string]any{"name": "Reorder A", "issue_title": "Reorder A"})
+	second := createIssueTemplateForTest(t, map[string]any{"name": "Reorder B", "issue_title": "Reorder B"})
 	t.Cleanup(func() {
 		for _, id := range []string{first, second} {
 			req := withURLParam(newRequest(http.MethodDelete, "/api/issue-templates/"+id+"?workspace_id="+testWorkspaceID, nil), "id", id)
