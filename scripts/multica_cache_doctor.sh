@@ -123,7 +123,9 @@ __url_to_parts() {
     fi
   fi
 
-  host="${host,,}"
+  # Lowercase via tr, not ${host,,}: bash 3.2 (macOS default) does not
+  # support the ${var,,} substitution and would fail with "bad substitution".
+  host="$(printf '%s' "$host" | tr 'A-Z' 'a-z')"
   printf '%s\t%s' "$host" "$path"
 }
 
@@ -147,7 +149,7 @@ __dir_to_parts() {
   host="${body%%+*}"
   path="${body#*+}"
   host="${host//%3A/:}"
-  host="${host,,}"
+  host="$(printf '%s' "$host" | tr 'A-Z' 'a-z')"
   path="${path//+//}"
   printf '%s\t%s' "$host" "$path"
 }
