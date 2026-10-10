@@ -893,6 +893,9 @@ jobs:
       - name: Test backend entrypoint signals
         run: bash scripts/entrypoint.test.sh
 
+      - name: Test multica bare-cache doctor
+        run: bash scripts/multica_cache_doctor.test.sh
+
       - name: Test build output naming
         run: bash scripts/makefile-build.test.sh
 
