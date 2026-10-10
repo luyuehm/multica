@@ -53,3 +53,14 @@ content is already on fork main.
 merged: [#112, #109, #108, #117]
 already-in-fork-main (superseded): #113, #114, #115, #118 (RIC-1359 landed #118 tree)
 blocked: []
+
+## PR closure status (furtherref/multica, 2026-10-10)
+- CLOSED with superseded-by #118 note: #115, #114, #113
+- CLOSED with landed-on-fork note (merge SHA in comment): #109, #108, #117, #118
+- OPEN (no close permission — authored by furtherref, not luyuehm): #112;
+  landed-on-fork note posted as a comment
+
+## Verification commands recorded
+- `git -C <fork> log --oneline -5 origin/main` → 9a2f406a55..374632913f
+- `gitleaks detect --no-git -v` → 39 findings, 0 in train-changed files
+- `gh api repos/luyuehm/multica/commits/main --jq .sha` → 9a2f406a55631d3e3b11d6593205bdec926219f2
