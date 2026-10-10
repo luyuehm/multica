@@ -7,7 +7,9 @@ export type {
   CreateIssueTemplateRequest,
   UpdateIssueTemplateRequest,
   IssueTemplateVariableDefinition,
+  IssueTemplateVariables,
   IssueTemplateDefaults,
+  IssueTemplateConfig,
   InstantiatedIssuePayload,
   InstantiateIssueTemplateRequest,
 } from "./issue-template";

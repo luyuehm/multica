@@ -6,6 +6,8 @@ export interface IssueTemplate {
   issue_content: string;
   config: Record<string, unknown>;
   created_by: string | null;
+  enabled: boolean;
+  position: number;
   archived: boolean;
   archived_at: string | null;
   created_at: string;
@@ -19,6 +21,8 @@ export interface IssueTemplateSummary {
   issue_title: string;
   config: Record<string, unknown>;
   created_by: string | null;
+  enabled: boolean;
+  position: number;
   archived: boolean;
   archived_at: string | null;
   created_at: string;
@@ -39,18 +43,17 @@ export interface UpdateIssueTemplateRequest {
   config?: Record<string, unknown>;
 }
 
-/** Template variable definition declared in `IssueTemplate.config.variables`. */
+/** A declared {{variable}} in an issue template's title/content. */
 export interface IssueTemplateVariableDefinition {
   label?: string;
   required?: boolean;
   default?: unknown;
 }
 
-/**
- * Defaults declared in `IssueTemplate.config.defaults`, applied by the
- * instantiate endpoint while pre-filling a new-issue payload. Paths mirror the
- * create-issue request contract.
- */
+/** `config.variables` — declared template variables, keyed by variable name. */
+export type IssueTemplateVariables = Record<string, IssueTemplateVariableDefinition>;
+
+/** `config.defaults` — pre-fill values applied when instantiating a template. */
 export interface IssueTemplateDefaults {
   priority?: string;
   status?: string;
@@ -63,6 +66,12 @@ export interface IssueTemplateDefaults {
   properties?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
   labels?: string[];
+}
+
+/** Structured `config` shape for an issue template. */
+export interface IssueTemplateConfig {
+  variables?: IssueTemplateVariables;
+  defaults?: IssueTemplateDefaults;
 }
 
 /**
