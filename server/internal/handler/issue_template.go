@@ -135,7 +135,6 @@ func issueTemplateSummaryToResponse(t db.ListIssueTemplateSummariesByWorkspaceRo
 		Position:    t.Position,
 		CreatedAt:   timestampToString(t.CreatedAt),
 		UpdatedAt:   timestampToString(t.UpdatedAt),
-		ArchivedAt:  timestampToPtr(t.ArchivedAt),
 	}
 }
 

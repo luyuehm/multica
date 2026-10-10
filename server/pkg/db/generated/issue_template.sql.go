@@ -163,7 +163,7 @@ type ListIssueTemplateSummariesByWorkspaceRow struct {
 // Templates archive instead of delete (RIC-906): archived_at IS NOT NULL
 // retires a template from the default list and the create-issue template
 // picker, while keeping the row for audit and unarchiving. See migration
-// 542/543.
+// 906/907.
 //
 // Templates can additionally be disabled (RIC-904): enabled = false hides a
 // template from the create-issue picker without archiving it, so it stays in
