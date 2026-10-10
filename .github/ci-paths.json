@@ -14,7 +14,9 @@
     ".github/workflows/ci.yml",
     ".github/ci-paths.json",
     "scripts/ci-scope.mjs",
-    "scripts/ci-scope.test.mjs"
+    "scripts/ci-scope.test.mjs",
+    "scripts/multica_cache_doctor.sh",
+    "scripts/multica_cache_doctor.test.sh"
   ],
   "backend": [
     "server/**",
@@ -94,6 +96,8 @@
     "scripts/helm-config.test.sh",
     "scripts/entrypoint.test.sh",
     "scripts/makefile-build.test.sh",
+    "scripts/multica_cache_doctor.sh",
+    "scripts/multica_cache_doctor.test.sh",
     "deploy/helm/**",
     "docker/entrypoint.sh",
     ".env.example",
