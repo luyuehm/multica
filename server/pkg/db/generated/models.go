@@ -53,6 +53,8 @@ type Agent struct {
 	DisabledRuntimeSkills []byte      `json:"disabled_runtime_skills"`
 	ServiceTier           pgtype.Text `json:"service_tier"`
 	ConversationStarters  []byte      `json:"conversation_starters"`
+	HealthState           pgtype.Text `json:"health_state"`
+	HealthMetadata        []byte      `json:"health_metadata"`
 }
 
 type AgentBuilderDraft struct {
