@@ -1,0 +1,5 @@
+# RIC-1575 baseline (fetched before work; push only to fork)
+fork luyuehm/multica main before: 76c0211fbcbeff08721f1ffba8cf033ad3733fdc
+fork luyuehm/multica main after:  b6b26e02a6e6c3f292cdd1a1b3d448bd6926e3ed
+upstream multica-ai/multica PR #8764 (RIC-1024) head: 4adb9fcacd5a65a5e98057ab74dddb57d1887dac
+upstream multica-ai/multica PR #8641 (RIC-951) head: 73193f320d8137f2c2b0b5a69d6e1c14706bb146
