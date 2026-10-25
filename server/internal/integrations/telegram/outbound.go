@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/integrations/channel"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -443,7 +444,10 @@ func (o *Outbound) pushPartial(ctx context.Context, target *replyTarget, st *str
 	}
 
 	api := newBotAPI(o.apiBase, target.botToken, o.client)
-	text := snapshot
+	// A receipt-shaped snapshot is rendered, not streamed raw: a partial JSON
+	// object is unreadable, and the reader should not watch the agent's
+	// bookkeeping arrive one character at a time.
+	text := channel.NormalizeAgentText(snapshot)
 	if utf16Units(text) > maxMessageUnits {
 		// Mid-stream overflow: freeze the streamed message at the cap; the full
 		// reply is delivered in chunks by the final EventChatDone send.
@@ -1604,10 +1608,10 @@ func eventTaskID(e events.Event) (pgtype.UUID, bool) {
 func chatDoneContent(payload any) string {
 	switch p := payload.(type) {
 	case protocol.ChatDonePayload:
-		return p.Content
+		return channel.NormalizeAgentText(p.Content)
 	case map[string]any:
 		if s, ok := p["content"].(string); ok {
-			return s
+			return channel.NormalizeAgentText(s)
 		}
 	}
 	return ""

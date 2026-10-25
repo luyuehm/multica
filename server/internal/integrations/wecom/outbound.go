@@ -757,10 +757,10 @@ func (o *Outbound) finishStream(ctx context.Context, h streamHandle, text string
 func chatDoneContent(payload any) string {
 	switch p := payload.(type) {
 	case protocol.ChatDonePayload:
-		return p.Content
+		return channel.NormalizeAgentText(p.Content)
 	case map[string]any:
 		if s, ok := p["content"].(string); ok {
-			return s
+			return channel.NormalizeAgentText(s)
 		}
 	}
 	return ""

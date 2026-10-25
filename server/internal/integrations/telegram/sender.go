@@ -126,40 +126,105 @@ func parseMessageRef(ref string) int64 {
 }
 
 // chunkMessage splits text into <=maxUnits UTF-16 code-unit pieces on rune
-// boundaries, preferring newline breaks so code blocks and paragraphs split
-// cleanly.
+// boundaries, preferring newline breaks so paragraphs split cleanly.
+//
+// A split that lands inside a fenced code block closes the fence in the chunk
+// and reopens it in the next one. Without that repair each piece was rendered
+// independently, so every chunk after the first arrived as raw text with its
+// ``` markers intact and its `**` markers unconverted — a long reply with one
+// code block reached the user as several messages of broken markdown, which is
+// exactly what a fenced block is supposed to prevent.
 func chunkMessage(text string, maxUnits int) []string {
-	runes := []rune(text)
 	if maxUnits <= 0 || utf16Units(text) <= maxUnits {
 		return []string{text}
 	}
+	runes := []rune(text)
 	var chunks []string
+	// fence is the opening line of the code block that the previous chunk left
+	// open ("```" or "```go"), or "" when the next chunk starts outside one.
+	fence := ""
 	for len(runes) > 0 {
-		n := 0
-		end := 0
-		for i, r := range runes {
-			units := 1
-			if r > 0xFFFF {
-				units = 2
+		prefix := ""
+		if fence != "" {
+			prefix = fence + "\n"
+		}
+		budget := maxUnits - utf16Units(prefix)
+		if budget < 1 {
+			budget = 1
+		}
+		end := splitPoint(runes, budget)
+		body := string(runes[:end])
+		nextFence, opened := fenceAfter(body, fence)
+		if opened {
+			// The split landed inside a code block, so this chunk needs four
+			// more units for the closing fence. Re-cut shorter rather than
+			// reserving that room on every chunk: at a small budget the
+			// reservation alone would exceed it and force single-rune chunks.
+			if trimmed := utf16Units(fenceCloser); budget > trimmed {
+				end = splitPoint(runes, budget-trimmed)
+				body = string(runes[:end])
+				nextFence, opened = fenceAfter(body, fence)
 			}
-			if n+units > maxUnits {
-				break
-			}
-			n += units
-			end = i + 1
 		}
-		if end == 0 {
-			end = 1
+		chunk := prefix + strings.TrimRight(body, "\n")
+		if opened {
+			chunk += fenceCloser
 		}
-		// Prefer the last newline in the window, but only when it leaves a
-		// substantial first chunk rather than producing tiny fragments.
-		if i := lastIndexRune(runes[:end], '\n'); i >= 0 && utf16Units(string(runes[:i])) > maxUnits/2 {
-			end = i + 1
-		}
-		chunks = append(chunks, strings.TrimRight(string(runes[:end]), "\n"))
+		chunks = append(chunks, chunk)
+		fence = nextFence
 		runes = runes[end:]
 	}
 	return chunks
+}
+
+// fenceCloser terminates a code block a chunk boundary cut in half. It starts
+// with a newline so it never lands on the same line as the code it closes.
+const fenceCloser = "\n```"
+
+// splitPoint returns how many runes of s fit in budget UTF-16 units, preferring
+// the last newline in the window when that leaves a substantial first piece
+// rather than a tiny fragment.
+func splitPoint(s []rune, budget int) int {
+	n := 0
+	end := 0
+	for i, r := range s {
+		units := 1
+		if r > 0xFFFF {
+			units = 2
+		}
+		if n+units > budget {
+			break
+		}
+		n += units
+		end = i + 1
+	}
+	if end == 0 {
+		end = 1
+	}
+	if i := lastIndexRune(s[:end], '\n'); i >= 0 && utf16Units(string(s[:i])) > budget/2 {
+		end = i + 1
+	}
+	return end
+}
+
+// fenceAfter reports the code-block state at the end of body, having started
+// from the state entering isOpen (the opening line, or "" when outside one).
+// The returned line is non-empty exactly when the block is still open, and is
+// the fence line the continuation has to repeat.
+func fenceAfter(body, entered string) (open string, isOpen bool) {
+	open = entered
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "```") {
+			continue
+		}
+		if open != "" {
+			open = ""
+			continue
+		}
+		open = trimmed
+	}
+	return open, open != ""
 }
 
 func utf16Units(s string) int {

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/integrations/channel"
 	"github.com/multica-ai/multica/server/internal/integrations/channel/engine"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -264,7 +265,7 @@ func bindingFromTaskDelivery(delivery db.ChannelTaskDelivery) db.ChannelChatSess
 func eventContent(e events.Event) string {
 	switch p := e.Payload.(type) {
 	case protocol.ChatDonePayload:
-		return p.Content
+		return channel.NormalizeAgentText(p.Content)
 	case map[string]any:
 		if e.Type == protocol.EventTaskFailed {
 			if retryPending, _ := p["retry_pending"].(bool); retryPending {
@@ -276,7 +277,7 @@ func eventContent(e events.Event) string {
 			return ""
 		}
 		if s, ok := p["content"].(string); ok {
-			return s
+			return channel.NormalizeAgentText(s)
 		}
 	}
 	return ""

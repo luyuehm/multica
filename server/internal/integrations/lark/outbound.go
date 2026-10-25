@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/integrations/channel"
 	"github.com/multica-ai/multica/server/internal/integrations/channel/engine"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -723,10 +724,10 @@ func taskAndSessionFromEvent(e events.Event) (taskID, chatSessionID pgtype.UUID,
 func chatDoneContent(payload any) string {
 	switch p := payload.(type) {
 	case protocol.ChatDonePayload:
-		return p.Content
+		return channel.NormalizeAgentText(p.Content)
 	case map[string]any:
 		if s, ok := p["content"].(string); ok {
-			return s
+			return channel.NormalizeAgentText(s)
 		}
 	}
 	return ""
