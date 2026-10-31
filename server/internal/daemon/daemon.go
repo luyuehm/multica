@@ -36,6 +36,7 @@ import (
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
+	"github.com/multica-ai/multica/server/pkg/waitreason"
 )
 
 // ErrRepoNotConfigured is returned by ensureRepoReady when the requested repo
@@ -7674,6 +7675,12 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 
 	prepareTimeout := d.effectiveTaskPrepareTimeout()
 	prepareCtx, cancelPrepare := context.WithTimeoutCause(ctx, prepareTimeout, errTaskPrepareTimeout)
+	// Filled in only if this run parks waiting for a worktree snapshot. The
+	// defer reads it at timeout time, which is the only moment the distinction
+	// matters: "preparation timed out" alone cannot tell an operator, a board,
+	// or the failover path that THIS task never got to run because another
+	// task held the directory.
+	snapshotWait := &worktreeSnapshotWaitTracker{}
 	prepareComplete := false
 	defer func() {
 		cancelPrepare()
@@ -7684,7 +7691,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// or the explicit waitForExecutionEnvironment cause) into one sentinel
 		// that handleTask can classify as a retryable platform timeout.
 		taskResult = TaskResult{}
-		returnErr = fmt.Errorf("%w after %s", errTaskPrepareTimeout, prepareTimeout)
+		returnErr = prepareTimeoutError(prepareTimeout, snapshotWait, time.Now())
 	}()
 
 	// task.Repos is the authoritative repo list for this task — when the
@@ -8181,17 +8188,28 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			}
 			// LocalPathLocker invokes onWait synchronously, in this goroutine,
 			// at most once per Acquire — see the in-place call site.
+			//
+			// The reason this writes is deliberately a different shape from the
+			// in-place one: both land in wait_reason, and "waiting for a
+			// snapshot of the user's directory" is a different operational
+			// fact from "queued behind another writer in that directory" —
+			// different holder, different expected duration, different thing
+			// to fix. Board, failover and lock-heal code can only tell them
+			// apart if the text says which one it is.
 			waitCounted := false
 			release, lockErr := d.localPathLocks.Acquire(waitCtx, localAssignment.RealPath, task.ID, func(holder string) {
 				d.resourceWaitTasks.Add(1)
 				waitCounted = true
-				reason := fmt.Sprintf("local_directory %s", localAssignment.AbsPath)
-				if holder != "" {
-					reason = fmt.Sprintf("%s (held by task %s)", reason, shortID(holder))
+				wait := waitreason.WorktreeSnapshot{
+					Holder:         holder,
+					LocalDirectory: localAssignment.DisplayName(),
 				}
+				snapshotWait.parking(wait, time.Now())
 				taskLog.Info("local_directory: worktree snapshot waiting for holder",
-					"holder", holder)
-				if waitErr := d.client.MarkTaskWaitingLocalDirectory(waitCtx, task.ID, reason); waitErr != nil {
+					"holder", holder,
+					"local_directory", localAssignment.AbsPath,
+					"wait_reason", wait.String())
+				if waitErr := d.client.MarkTaskWaitingLocalDirectory(waitCtx, task.ID, wait.String()); waitErr != nil {
 					// Non-fatal: the wait still happens, the UI just won't
 					// show the explicit "waiting" badge.
 					taskLog.Warn("local_directory: mark waiting status failed", "error", waitErr)
@@ -8212,6 +8230,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 				return TaskResult{}, fmt.Errorf("local_directory worktree: wait for a consistent snapshot of %s: %w",
 					localAssignment.AbsPath, lockErr)
 			}
+			// The hold is over the moment this task owns the lock; only a
+			// deadline that fires while still queued may claim it was waiting.
+			snapshotWait.resumed()
 			env, err = d.prepareExecutionEnvironment(prepareCtx, prepParams)
 			release()
 			if err != nil {
