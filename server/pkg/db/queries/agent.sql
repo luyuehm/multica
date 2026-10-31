@@ -1273,6 +1273,11 @@ LIMIT 1;
 -- the COALESCE that would otherwise preserve a stale mid-flight pin — and flag
 -- the row, in the SAME transaction that creates and wakes the auto-retry, so the
 -- retry can never claim the bad pointer or miss the continuity gap.
+--
+-- wait_reason is cleared here because this statement may terminate a
+-- waiting_local_directory row (a preparation that timed out behind a holder).
+-- Leaving the hold text on a failed row would keep describing a wait that is
+-- no longer happening — the failure that ended it is already in error.
 UPDATE agent_task_queue
 SET status = 'failed',
     completed_at = now(),
@@ -1284,6 +1289,7 @@ SET status = 'failed',
     branch_name = COALESCE(sqlc.narg('branch_name'), branch_name),
     session_rollout_missing = sqlc.arg('session_rollout_missing'),
     retired_session_id = COALESCE(sqlc.narg('retired_session_id'), retired_session_id),
+    wait_reason = NULL,
     prepare_lease_expires_at = NULL
 WHERE id = $1 AND status IN ('dispatched', 'running', 'waiting_local_directory')
 RETURNING *;
