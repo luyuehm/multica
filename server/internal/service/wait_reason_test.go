@@ -1,6 +1,9 @@
 package service
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestSanitizeWaitReason covers the version-skew guard on the hold hint.
 //
@@ -55,6 +58,35 @@ func TestSanitizeWaitReason(t *testing.T) {
 		} {
 			if got := sanitizeWaitReason(reason); got != reason {
 				t.Errorf("sanitizeWaitReason(%q) = %q, want it kept", reason, got)
+			}
+		}
+	})
+
+	// The worktree snapshot format carries the same "no absolute paths" rule as
+	// the in-place one, but its value sits after `local_directory=`, where the
+	// legacy prefix check cannot see it. A daemon that regressed to a path there
+	// would ship it inside a perfectly well-formed envelope.
+	t.Run("keeps the worktree snapshot format current daemons send", func(t *testing.T) {
+		for _, reason := range []string{
+			"worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=NuvioTV)",
+			"worktree_snapshot_waiting(holder=-, local_directory=NuvioTV)",
+			"  worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=my repo)  ",
+			"worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=local_directory)",
+		} {
+			if got := sanitizeWaitReason(reason); got != strings.TrimSpace(reason) {
+				t.Errorf("sanitizeWaitReason(%q) = %q, want it kept", reason, got)
+			}
+		}
+	})
+
+	t.Run("drops a worktree snapshot format that carries a path", func(t *testing.T) {
+		for _, reason := range []string{
+			"worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=/Users/foxace/repos/NuvioTV)",
+			`worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=C:\Users\foxace\repos\NuvioTV)`,
+			`worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=\\fileserver\share\repo)`,
+		} {
+			if got := sanitizeWaitReason(reason); got != "" {
+				t.Errorf("sanitizeWaitReason(%q) = %q, want empty — a path reached the client", reason, got)
 			}
 		}
 	})

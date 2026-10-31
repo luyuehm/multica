@@ -1296,9 +1296,13 @@ type PendingChatTaskResponse struct {
 }
 
 // waitReasonForStatus gates the stored hold text on the status it describes.
-// wait_reason is never cleared when a task resumes — the daemon writes it once
-// on the way into the hold — so returning it unconditionally would attach "held
-// by task abc12345" to a task that has been running for ten minutes.
+//
+// Current daemons clear wait_reason on the transition out of the hold
+// (StartAgentTask and FailAgentTask both NULL it), so this is a defence in
+// depth rather than the only guard: an older daemon paired with this server
+// leaves the text behind, and a row read mid-transition can still carry it.
+// Returning the reason unconditionally would attach "held by task abc12345" to
+// a task that has been running for ten minutes.
 func waitReasonForStatus(status string, reason pgtype.Text) string {
 	if status != "waiting_local_directory" || !reason.Valid {
 		return ""

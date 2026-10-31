@@ -34,6 +34,7 @@ import (
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
+	"github.com/multica-ai/multica/server/pkg/waitreason"
 )
 
 type TaskService struct {
@@ -4323,6 +4324,18 @@ func sanitizeWaitReason(reason string) string {
 	rest, ok := strings.CutPrefix(reason, legacyLocalDirectoryWaitPrefix)
 	if ok && startsWithAbsolutePath(rest) {
 		return ""
+	}
+	// The worktree snapshot format carries the same constraint from a newer
+	// daemon, and its shape means the path check above cannot see it: the value
+	// sits after `local_directory=`, not at the start of the string. A daemon
+	// that regresses to the absolute path there would otherwise ship the
+	// account name inside a perfectly well-formed envelope. Drop the whole
+	// reason rather than rewriting it — a client that receives nothing falls
+	// back to the plain waiting label, which is never wrong.
+	if snapshot, isSnapshot := waitreason.ParseWorktreeSnapshot(reason); isSnapshot {
+		if startsWithAbsolutePath(snapshot.LocalDirectory) {
+			return ""
+		}
 	}
 	return reason
 }
