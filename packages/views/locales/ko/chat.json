@@ -207,6 +207,7 @@
       "queued": "대기 중",
       "waiting_local_directory": "로컬 디렉터리 대기 중",
       "waiting_local_directory_reason": "{{reason}} 대기 중",
+      "worktree_snapshot_waiting_reason": "{{reason}}의 일관된 스냅샷 대기 중",
       "starting_up": "시작 중",
       "thinking": "생각 중",
       "typing": "입력 중"

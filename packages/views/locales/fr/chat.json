@@ -211,6 +211,7 @@
       "queued": "En file d'attente",
       "waiting_local_directory": "En attente du répertoire local",
       "waiting_local_directory_reason": "En attente de {{reason}}",
+      "worktree_snapshot_waiting_reason": "En attente d'un instantané cohérent de {{reason}}",
       "starting_up": "Démarrage",
       "thinking": "Réflexion",
       "typing": "Rédaction"

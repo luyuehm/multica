@@ -207,6 +207,7 @@
       "queued": "待機中",
       "waiting_local_directory": "ローカルディレクトリを待機中",
       "waiting_local_directory_reason": "{{reason}} を待機中",
+      "worktree_snapshot_waiting_reason": "{{reason}} の一貫したスナップショットを待機中",
       "starting_up": "起動中",
       "thinking": "考え中",
       "typing": "入力中"

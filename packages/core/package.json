@@ -64,6 +64,7 @@
     "./chat/queries": "./chat/queries.ts",
     "./chat/mutations": "./chat/mutations.ts",
     "./chat/pending": "./chat/pending.ts",
+    "./chat/wait-reason": "./chat/wait-reason.ts",
     "./chat/message-cache": "./chat/message-cache.ts",
     "./chat/use-quick-actions-pending-timeout": "./chat/use-quick-actions-pending-timeout.ts",
     "./chat/unread": "./chat/unread.ts",

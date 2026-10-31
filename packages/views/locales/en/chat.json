@@ -211,6 +211,7 @@
       "queued": "Queued",
       "waiting_local_directory": "Waiting for local directory",
       "waiting_local_directory_reason": "Waiting for {{reason}}",
+      "worktree_snapshot_waiting_reason": "Waiting for a consistent snapshot of {{reason}}",
       "starting_up": "Starting up",
       "thinking": "Thinking",
       "typing": "Typing"

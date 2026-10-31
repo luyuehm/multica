@@ -86,11 +86,12 @@ export function enqueuePendingChatTask(
   };
 }
 
-// A hold explanation outlives the hold: the daemon writes wait_reason once on
-// the way in and never clears it, so the only thing keeping "held by task
-// abc12345" off a task that has since started running is this gate. Any status
-// other than the waiting one drops the text, whether it arrived on this event
-// or was already in the cache.
+// A hold explanation outlives the hold: current daemons clear wait_reason on
+// the way out, but an older daemon leaves it behind, and a cache entry can
+// carry the last hold's text across a resume. Any status other than the
+// waiting one drops the text, whether it arrived on this event or was already
+// in the cache — that is what keeps "held by task abc12345" off a task that has
+// since started running.
 function resolveWaitReason(
   status: string,
   incoming: string | undefined,

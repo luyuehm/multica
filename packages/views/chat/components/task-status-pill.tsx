@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ShimmerText } from "@multica/ui/components/common/shimmer-text";
 import { UnicodeSpinner } from "@multica/ui/components/common/unicode-spinner";
 import type { AgentAvailability } from "@multica/core/agents";
+import { parseWorktreeSnapshotWaitReason } from "@multica/core/chat/wait-reason";
 import type { ChatPendingTask, TaskMessagePayload } from "@multica/core/types";
 import { formatElapsedSecs } from "../lib/format";
 import { useT } from "../../i18n";
@@ -152,6 +153,21 @@ function useResolveStage(): (
     // no reason, so the bare label has to stay reachable.
     const reason = waitReason?.trim();
     if (decision.needsWaitReason && reason) {
+      // The worktree snapshot hold arrives as a machine-readable envelope
+      // (see core/chat/wait-reason). It is written that way so board/failover
+      // code can classify the hold, which means the pill has to unwrap it —
+      // shown verbatim, the user would read `holder=` and
+      // `local_directory=` instead of "a snapshot of NuvioTV".
+      const snapshot = parseWorktreeSnapshotWaitReason(reason);
+      if (snapshot) {
+        return {
+          label: t(
+            ($) => $.status_pill.stages.worktree_snapshot_waiting_reason,
+            { reason: snapshot.localDirectory },
+          ),
+          static: decision.static,
+        };
+      }
       return {
         label: t(($) => $.status_pill.stages.waiting_local_directory_reason, {
           reason,
