@@ -16,7 +16,12 @@
 export const WORKTREE_SNAPSHOT_PREFIX = "worktree_snapshot_waiting(";
 
 export interface WorktreeSnapshotWait {
-  /** Short id of the task holding the directory. "-" when unknown. */
+  /**
+   * Full id of the task holding the directory — the daemon stamps the whole
+   * task UUID here, unlike the in-place reason's hand-shortened `a1b2c3d4`, so
+   * an operator can look the holder up without matching a prefix. "-" when the
+   * holder had already released and its id is unknown.
+   */
   holder: string;
   /** Display name of the directory being snapshotted. */
   localDirectory: string;
