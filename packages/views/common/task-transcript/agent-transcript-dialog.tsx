@@ -96,6 +96,7 @@ import {
 } from "./detail-surfaces";
 import { languageForPath } from "./diff-highlight";
 import { useLocale, useT } from "../../i18n";
+import { AgentActivityLabel, useLiveTaskActivity } from "../agent-activity";
 import {
   formatTokens,
   formatUsd,
@@ -118,6 +119,14 @@ interface AgentTranscriptDialogProps {
   agentName: string;
   isLive?: boolean;
   /**
+   * Current transient activity hint (e.g. "reconnecting") supplied by the
+   * parent (the live card). Passing it in — rather than the dialog running its
+   * own task:activity subscription — keeps the dialog's empty-state label
+   * consistent with the card even when reopened mid-run. Only meaningful while
+   * isLive.
+   */
+  activity?: string;
+  /**
    * Whether focus returns to the trigger when the dialog closes. Pass `true`
    * only for a keyboard open, where the reader has no other way back. After a
    * pointer open, returning focus is what leaves the trigger wearing a focus
@@ -134,6 +143,17 @@ interface AgentTranscriptDialogProps {
    * The dialog stays generic — slot content is the caller's concern.
    */
   headerSlot?: React.ReactNode;
+  /**
+   * The displayed transcript has not yet been verified by the authoritative
+   * server catch-up, so it may be partial. Only meaningful for non-live tasks.
+   */
+  loadIncomplete?: boolean;
+  /** The server catch-up is still in flight. */
+  loadPending?: boolean;
+  /** Re-run the catch-up fetch after a failed load. */
+  onRetryLoad?: () => void;
+  /** Catch-up retry in flight — disables the retry control. */
+  retrying?: boolean;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -317,9 +337,14 @@ export function AgentTranscriptDialog({
   items,
   agentName,
   isLive = false,
+  activity,
   finalFocus = false,
   headerSlot,
   contentState,
+  loadIncomplete,
+  loadPending,
+  onRetryLoad,
+  retrying,
 }: AgentTranscriptDialogProps) {
   const { t } = useT("agents");
   const locale = useLocale();
@@ -333,6 +358,12 @@ export function AgentTranscriptDialog({
   const [copiedBranch, showCopiedBranch] = useCopyFeedback();
   const [agentInfo, setAgentInfo] = useState<Agent | null>(null);
   const [runtimeInfo, setRuntimeInfo] = useState<AgentRuntime | null>(null);
+  // Activity hint: prefer the prop fed by a persistent parent (the live card —
+  // reopen-consistent). When opened without one (e.g. lazily from the execution
+  // log or activity tab), fall back to a component-local subscription so the
+  // empty state still shows "Reconnecting" while open.
+  const fallbackActivity = useLiveTaskActivity(isLive ? task.id : undefined);
+  const effectiveActivity = activity ?? fallbackActivity;
   const workdirCopyTarget = useMemo(
     () => resolveWorkdirCopyTarget([task]),
     [task],
@@ -680,6 +711,7 @@ export function AgentTranscriptDialog({
   }, [task.branch_name, showCopiedBranch]);
 
   const handleCopyAll = useCallback(() => {
+    if (loadIncomplete) return;
     // Copy the full body of each event (not the truncated row summary), with
     // the same secret redaction the detail view applies. A step copies as its
     // call followed by its result, which is the order it happened in.
@@ -704,7 +736,7 @@ export function AgentTranscriptDialog({
       if (!ok) return;
       showCopied();
     });
-  }, [displayRows, showCopied]);
+  }, [displayRows, loadIncomplete, showCopied]);
 
   const handleToggleGroup = useCallback((seq: number) => {
     setExpandedGroups((prev) => {
@@ -1084,7 +1116,6 @@ export function AgentTranscriptDialog({
 
         {/* ── What the run produced ──────────────────────────────────── */}
         <RunOutcomeRow outcome={outcome} branch={task.branch_name} />
-
         {/* ── Where the time went ────────────────────────────────────── */}
         {lanes && (
           <RunTimeline
@@ -1099,6 +1130,31 @@ export function AgentTranscriptDialog({
         {headerSlot && (
           <div className="border-b px-4 py-3 shrink-0 bg-muted/20">
             {headerSlot}
+          </div>
+        )}
+
+        {/* ── Catch-up failure warning ───────────────────────────── */}
+        {/* Surfaced only once a catch-up has actually failed. A pending
+            catch-up stays silent — the displayed content is still the warm
+            cache, and flashing a "loading" banner on every open is noise.
+            (copy-all stays disabled while pending via `loadIncomplete`.) */}
+        {loadIncomplete && !loadPending && (
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-caption text-destructive">
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{t(($) => $.transcript.load_incomplete)}</span>
+            </span>
+            {onRetryLoad && (
+              <button
+                type="button"
+                onClick={() => onRetryLoad()}
+                disabled={retrying}
+                className="inline-flex shrink-0 items-center gap-1 rounded-xs px-2 py-0.5 font-medium transition-colors hover:bg-destructive/15 disabled:opacity-50"
+              >
+                {retrying && <Loader2 className="h-3 w-3 animate-spin" />}
+                {t(($) => $.transcript.retry)}
+              </button>
+            )}
           </div>
         )}
 
@@ -1202,7 +1258,7 @@ export function AgentTranscriptDialog({
                   ? t(($) => $.transcript.sort_newest_first)
                   : t(($) => $.transcript.sort_chronological)}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={handleCopyAll}>
+              <DropdownMenuItem onClick={handleCopyAll} disabled={loadIncomplete}>
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 {copyTranscriptLabel}
               </DropdownMenuItem>
@@ -1216,10 +1272,12 @@ export function AgentTranscriptDialog({
             {contentState ? <div className="flex h-full items-center justify-center p-4">{contentState}</div> : displayRows.length === 0 ? (
               <div className="flex h-full items-center justify-center text-body text-muted-foreground">
                 {isLive && steps.length === 0 ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t(($) => $.transcript.waiting_events)}
-                  </div>
+                  <AgentActivityLabel
+                    status={task.status}
+                    taskMessages={[]}
+                    activity={effectiveActivity}
+                    className="text-body"
+                  />
                 ) : steps.length === 0 ? (
                   t(($) => $.transcript.no_data)
                 ) : (

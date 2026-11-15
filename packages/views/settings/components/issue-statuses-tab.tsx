@@ -392,7 +392,9 @@ function CategorySection({
                   autoCompleteBadge={prAutoComplete && entry.is_system && entry.key === "done"}
                   label={entry.is_system ? labelOf(entry.key) : entry.name}
                   description={entry.is_system
-                    ? t(($) => $.issue_statuses.built_in_descriptions[entry.key as BuiltInIssueStatus])
+                    // Catalog rows are the seven seeded built-ins; the fork's
+                    // `archive` key never has one, so it needs no description.
+                    ? t(($) => $.issue_statuses.built_in_descriptions[entry.key as Exclude<BuiltInIssueStatus, "archive">])
                     : entry.description}
                   canManage={canManage}
                   canReorder={canReorder && !entry.archived_at}

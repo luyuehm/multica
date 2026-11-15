@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
@@ -741,6 +742,9 @@ type CoalescedCommentData struct {
 // ("the provider says this was free") and must stay distinguishable from
 // "the provider said nothing".
 type TaskUsageData struct {
+	// PricingDate is the UTC day the usage was recorded (YYYY-MM-DD). Empty
+	// when the row was not read from the database.
+	PricingDate      string `json:"pricing_date,omitempty"`
 	Provider         string `json:"provider,omitempty"`
 	Model            string `json:"model"`
 	InputTokens      int64  `json:"input_tokens"`
@@ -1105,6 +1109,10 @@ func deriveAgentRuntimeAvailability(runtime db.AgentRuntime, now time.Time) stri
 }
 
 func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
+	// The legacy list includes runtime/MCP configuration and other
+	// authorization-sensitive detail. It must never be stored by browsers or
+	// shared intermediaries; sanitized projections get their own validators.
+	w.Header().Set("Cache-Control", "no-store")
 	workspaceID := h.resolveWorkspaceID(r)
 	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
@@ -1165,6 +1173,22 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	// invocation allow-list. Targets are batch-loaded to avoid an N+1 and
 	// reused to enrich each response's invocation_targets.
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+
+	// Squad-leader scope. CLI passes ?scope=task_squad by default when
+	// running inside a daemon-managed agent task; --all opts out. The
+	// hint is only honored for agent actors that are actually running a
+	// leader task on a squad-assigned issue — otherwise the param is a
+	// no-op so worker tasks and one-off CLI calls keep their full A2A
+	// view. Pairs with the squad cross-squad mention gate in
+	// enqueueMentionedAgentTasks: list narrows what the leader sees,
+	// the gate hard-rejects what slips through anyway.
+	var squadScopeSet map[string]struct{}
+	if actorType == "agent" && r.URL.Query().Get("scope") == "task_squad" {
+		if set, ok := h.taskSquadMemberSet(r); ok {
+			squadScopeSet = set
+		}
+	}
+
 	targetsByAgent, ok := h.loadInvocationTargetsByAgent(r.Context(), agents)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "failed to load agent invocation targets")
@@ -1175,6 +1199,11 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 		targets := targetsByAgent[uuidToString(a.ID)]
 		if actorType == "member" {
 			if !memberAllowedToViewAgent(a, targets, actorID, member.Role) {
+				continue
+			}
+		}
+		if squadScopeSet != nil {
+			if _, inSquad := squadScopeSet[uuidToString(a.ID)]; !inSquad {
 				continue
 			}
 		}
@@ -1215,6 +1244,63 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, visible)
+}
+
+// taskSquadMemberSet returns the set of agent UUIDs (as strings) that belong
+// to the squad of the task identified by the X-Task-ID header — the squad's
+// LeaderID plus every squad_member of type "agent". The second return is
+// false when the task is not a leader task on a squad-assigned issue, when
+// the task isn't loadable, or when any of the squad lookups fail; callers
+// treat the false return as "no scoping" and fall through to the unscoped
+// list. The leader is always included even when the squad_member row was
+// not auto-inserted (legacy squads predating CreateSquad's auto-add),
+// matching the leader fallback in the enqueueMentionedAgentTasks gate.
+func (h *Handler) taskSquadMemberSet(r *http.Request) (map[string]struct{}, bool) {
+	taskHeader := r.Header.Get("X-Task-ID")
+	if taskHeader == "" {
+		return nil, false
+	}
+	taskUUID, err := util.ParseUUID(taskHeader)
+	if err != nil {
+		return nil, false
+	}
+	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	if err != nil {
+		return nil, false
+	}
+	if !task.IsLeaderTask {
+		return nil, false
+	}
+	if !task.IssueID.Valid {
+		return nil, false
+	}
+	issue, err := h.Queries.GetIssue(r.Context(), task.IssueID)
+	if err != nil {
+		return nil, false
+	}
+	if !issue.AssigneeType.Valid || issue.AssigneeType.String != "squad" || !issue.AssigneeID.Valid {
+		return nil, false
+	}
+	squad, err := h.Queries.GetSquadInWorkspace(r.Context(), db.GetSquadInWorkspaceParams{
+		ID:          issue.AssigneeID,
+		WorkspaceID: issue.WorkspaceID,
+	})
+	if err != nil {
+		return nil, false
+	}
+	members, err := h.Queries.ListSquadMembers(r.Context(), squad.ID)
+	if err != nil {
+		return nil, false
+	}
+	set := make(map[string]struct{}, len(members)+1)
+	set[uuidToString(squad.LeaderID)] = struct{}{}
+	for _, m := range members {
+		if m.MemberType != "agent" {
+			continue
+		}
+		set[uuidToString(m.MemberID)] = struct{}{}
+	}
+	return set, true
 }
 
 func (h *Handler) GetAgent(w http.ResponseWriter, r *http.Request) {
@@ -1724,11 +1810,10 @@ func workspaceAlwaysRedactSecrets(settings []byte) bool {
 }
 
 // canViewAgentSecrets checks whether the requesting user is allowed to
-// see the agent's secret-bearing fields (currently `mcp_config`). Only
-// the agent owner or workspace owner/admin qualify; for everyone else
-// the response is redacted. `custom_env` is no longer part of an agent
-// resource response (see MUL-2600), so this predicate is shared only by
-// the remaining mcp_config redaction path.
+// see or manage the agent's secret-bearing config. Only the agent owner
+// or workspace owner/admin qualify. Shared by the mcp_config redaction
+// path and the env-management endpoints (`authorizeAgentEnv`), so both
+// secret surfaces follow the same ownership rule.
 func canViewAgentSecrets(agent db.Agent, userID string, memberRole string) bool {
 	if roleAllowed(memberRole, "owner", "admin") {
 		return true
@@ -2002,15 +2087,17 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	_, hasTargets := rawFields["invocation_targets"]
 	permissionTouched := hasPermissionMode || hasTargets || req.Visibility != nil
 	replacePermissionTargets := false
+	authorizationChanged := false
 	var resolvedPerm resolvedPermission
 	if permissionTouched {
 		isAgentOwner := uuidToString(existing.OwnerID) == requestUserID(r)
+		changed, permErr := h.permissionInputChangesAgent(r.Context(), existing, req, hasPermissionMode, hasTargets)
+		if permErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to evaluate invocation permission change")
+			return
+		}
+		authorizationChanged = changed
 		if !isAgentOwner {
-			changed, permErr := h.permissionInputChangesAgent(r.Context(), existing, req, hasPermissionMode, hasTargets)
-			if permErr != nil {
-				writeError(w, http.StatusInternalServerError, "failed to evaluate invocation permission change")
-				return
-			}
 			if changed {
 				writeError(w, http.StatusForbidden, "only the agent owner can change access (permission_mode / invocation_targets)")
 				return
@@ -2313,7 +2400,14 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	slog.Info("agent updated", append(logger.RequestAttrs(r), "agent_id", id, "workspace_id", uuidToString(updated.WorkspaceID))...)
 	userID := requestUserID(r)
 	actorType, actorID := h.resolveActor(r, userID, uuidToString(updated.WorkspaceID))
-	h.publish(protocol.EventAgentStatus, uuidToString(updated.WorkspaceID), actorType, actorID, map[string]any{"agent": broadcastAgentResponse(resp)})
+	h.Bus.Publish(events.Event{
+		Type:                 protocol.EventAgentStatus,
+		WorkspaceID:          uuidToString(updated.WorkspaceID),
+		ActorType:            actorType,
+		ActorID:              actorID,
+		AuthorizationChanged: authorizationChanged,
+		Payload:              map[string]any{"agent": broadcastAgentResponse(resp)},
+	})
 	redactAgentResponseForActor(&resp, actorType)
 	// Workspace admins / non-owner members pass canManageAgent for legitimate
 	// admin actions (e.g. bulk reassigning agents off a leaving member's
@@ -2972,6 +3066,9 @@ func (h *Handler) GetWorkspaceAgentActivity30d(w http.ResponseWriter, r *http.Re
 // The outcome half is deliberately still served here so shipped desktop builds
 // keep working; MUL-5436 tracks moving it to a dedicated lazy endpoint.
 func (h *Handler) ListWorkspaceAgentTaskSnapshot(w http.ResponseWriter, r *http.Request) {
+	// This legacy snapshot carries result/error/work-directory detail. Keep it
+	// explicitly non-cacheable until clients migrate to the presence projection.
+	w.Header().Set("Cache-Control", "no-store")
 	workspaceID := h.resolveWorkspaceID(r)
 	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {

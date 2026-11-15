@@ -175,6 +175,17 @@ type PendingWorkPayload struct {
 	Kind      string `json:"kind,omitempty"`
 }
 
+// RuntimesRevokedPayload carries the runtime IDs whose daemon connections
+// must be severed after an account suspension. Server-internal (relay only);
+// never delivered to daemons.
+type RuntimesRevokedPayload struct {
+	RuntimeIDs []string `json:"runtime_ids"`
+	// IssuedAt (RFC3339) anchors the consumer-side replay gate: frames
+	// issued before a node's daemon hub started are relay replays and are
+	// dropped there.
+	IssuedAt string `json:"issued_at"`
+}
+
 // TaskProgressPayload is sent from daemon to server during task execution.
 type TaskProgressPayload struct {
 	TaskID  string `json:"task_id"`
@@ -226,6 +237,22 @@ type TaskMessagePayload struct {
 	// present as unknown rather than as complete.
 	OutputTruncated *bool  `json:"output_truncated,omitempty"`
 	CreatedAt       string `json:"created_at,omitempty"`
+}
+
+// TaskActivityPayload is a transient hint about what a running task is doing
+// right now (e.g. reconnecting to the model upstream). Unlike
+// TaskMessagePayload it is never written to the task transcript — it updates
+// an in-place indicator and is superseded by the next real task message.
+type TaskActivityPayload struct {
+	TaskID   string `json:"task_id"`
+	IssueID  string `json:"issue_id,omitempty"`
+	Activity string `json:"activity"` // e.g. "reconnecting"
+	// AfterSeq is the task's message-sequence frontier when this hint was
+	// emitted. The frontend ignores the hint if it has already seen a message
+	// past this seq — the activity POST is async and can be reordered behind a
+	// later (batched) task:message, which would otherwise wrongly re-show
+	// "Reconnecting" after a real message already superseded it.
+	AfterSeq int `json:"after_seq"`
 }
 
 // DaemonRegisterPayload is sent from daemon to server on connection.

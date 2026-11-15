@@ -84,6 +84,7 @@ const {
   mockAgents,
   mockSquads,
   mockOpenModal,
+  mockGetPersistedCreateMode,
   mockToastSuccess,
   mockClipboardWrite,
   mockTimeline,
@@ -128,6 +129,7 @@ const {
     }>,
   },
   mockOpenModal: vi.fn(),
+  mockGetPersistedCreateMode: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockClipboardWrite: vi.fn(() => Promise.resolve()),
   mockTimeline: { current: [] as Array<Record<string, unknown>> },
@@ -173,6 +175,7 @@ vi.mock("../common/actor-avatar", () => ({
 vi.mock("@multica/core/issues/stores", () => {
   const EMPTY: Array<{ id: string; visitedAt: number }> = [];
   return {
+    getPersistedCreateMode: mockGetPersistedCreateMode,
     useRecentIssuesStore: (
       selector?: (state: {
         byWorkspace: Record<string, typeof mockRecentItems.current>;
@@ -222,6 +225,7 @@ vi.mock("@multica/core/paths", async (importOriginal) => ({
     usage: () => "/ws-test/usage",
     runtimes: () => "/ws-test/runtimes",
     skills: () => "/ws-test/skills",
+    issueTemplates: () => "/ws-test/issue-templates",
     settings: () => "/ws-test/settings",
     issueDetail: (id: string) => `/ws-test/issues/${id}`,
     memberDetail: (id: string) => `/ws-test/members/${id}`,
@@ -324,6 +328,7 @@ describe("SearchCommand", () => {
     mockGetShareableUrl.mockReset().mockImplementation((p: string) => `https://app.multica/${p}`);
     mockMembers.current = [];
     mockOpenModal.mockReset();
+    mockGetPersistedCreateMode.mockReset().mockReturnValue("manual");
     mockToastSuccess.mockReset();
     mockClipboardWrite.mockReset().mockResolvedValue(undefined);
     mockTimeline.current = [];
@@ -583,7 +588,7 @@ describe("SearchCommand", () => {
     expect(screen.getByText("MUL-2")).toBeInTheDocument();
   });
 
-  it("shows New Issue / New Project under Commands and triggers the modal store", async () => {
+  it("shows New Issue / New Project under Commands and opens the persisted create mode", async () => {
     const user = userEvent.setup();
     renderSearch();
 

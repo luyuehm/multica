@@ -1,4 +1,4 @@
-import { githubUrl, discordUrl } from "../components/shared";
+import { githubUrl } from "../components/shared";
 import type { LandingDict } from "./types";
 
 export function createZhDict(
@@ -23,7 +23,7 @@ export function createZhDict(
     headlineLine2: "\u4e0d\u662f\u4eba\u7c7b\u3002",
     subheading:
       "Multica 是一个源码公开的平台，\u5c06\u7f16\u7801 智能体 \u53d8\u6210\u771f\u6b63\u7684\u961f\u53cb\u3002\u5206\u914d\u4efb\u52a1\u3001\u8ddf\u8e2a\u8fdb\u5ea6\u3001\u79ef\u7d2f\u6280\u80fd\u2014\u2014\u5728\u4e00\u4e2a\u5730\u65b9\u7ba1\u7406\u4f60\u7684\u4eba\u7c7b + 智能体 \u56e2\u961f\u3002",
-    cta: "免费开始",
+    cta: "登录",
     downloadDesktop: "下载桌面端",
     talkToSales: "联系商务",
     worksWith: "支持 20+ 种 AI 编程工具",
@@ -126,15 +126,14 @@ export function createZhDict(
   },
 
   howItWorks: {
-    label: "\u5f00\u59cb\u4f7f\u7528",
+    label: "接入流程",
     headlineMain: "\u62db\u52df\u4f60\u7684\u7b2c\u4e00\u4e2a AI \u5458\u5de5",
     headlineFaded: "\u53ea\u9700\u4e00\u5c0f\u65f6\u3002",
     steps: [
       {
-        title: allowSignup ? "注册并创建您的工作空间" : "登录到您的工作空间",
-        description: allowSignup
-          ? "输入您的邮箱，验证代码后即可使用。工作空间会自动创建——无需设置向导或配置表单。"
-          : "输入您的邮箱，验证代码后即可登录到您的工作空间——无需设置向导或配置表单。",
+        title: "登录到您的工作空间",
+        description:
+          "输入您的邮箱，验证代码后即可登录到您的工作空间——无需设置向导或配置表单。",
       },
       {
         title: "\u5b89\u88c5 CLI \u5e76\u8fde\u63a5\u4f60\u7684\u673a\u5668",
@@ -152,7 +151,7 @@ export function createZhDict(
           "从指派人下拉菜单中选择你的 智能体——就像指派给同事一样。task 自动入队、领取、执行。实时观看进度。",
       },
     ],
-    cta: "\u5f00\u59cb\u4f7f\u7528",
+    cta: "登录",
     ctaGithub: "\u5728 GitHub \u4e0a\u67e5\u770b",
     ctaDocs: "\u9605\u8bfb\u6587\u6863",
   },
@@ -235,7 +234,7 @@ export function createZhDict(
   footer: {
     tagline:
       "\u4eba\u7c7b + 智能体 团队的项目管理。源码公开、可自托管、\u4e3a\u672a\u6765\u7684\u5de5\u4f5c\u65b9\u5f0f\u800c\u5efa\u3002",
-    cta: "\u5f00\u59cb\u4f7f\u7528",
+    cta: "登录",
     groups: {
       product: {
         label: "\u4ea7\u54c1",
@@ -252,8 +251,6 @@ export function createZhDict(
         links: [
           { label: "\u6587\u6863", href: docsHref },
           { label: "API", href: githubUrl },
-          { label: "X (Twitter)", href: "https://x.com/MulticaAI" },
-          { label: "Discord", href: discordUrl },
         ],
       },
       company: {
@@ -300,7 +297,6 @@ export function createZhDict(
       contacts: [
         { label: "商业授权与合作", linkLabel: "联系商务", href: "/contact-sales" },
         { label: "授权规则", linkLabel: "授权说明", href: "/licensing" },
-        { label: "社区与支持", linkLabel: "Discord", href: discordUrl },
         { label: "源代码与问题反馈", linkLabel: "GitHub", href: githubUrl },
       ],
     },
@@ -378,7 +374,7 @@ export function createZhDict(
       {
         heading: "获取商业授权",
         paragraphs: [
-          "通过[联系商务](/contact-sales)告诉我们你的使用场景，我们会在三个工作日内回复。不确定自己的情况是否需要授权？可以在 [Discord](" + discordUrl + ") 上问我们，也可以通过同一个表单咨询。",
+          "通过[联系商务](/contact-sales)告诉我们你的使用场景，我们会在三个工作日内回复。不确定自己的情况是否需要授权？可以通过同一个表单咨询。",
         ],
       },
     ],
@@ -2304,7 +2300,6 @@ export function createZhDict(
         features: [
           "Lark 里的话题消息现在会回到原话题中，团队讨论更容易保持上下文",
           "小队负责人现在可以在成员列表里看到成员技能，分配任务时更容易选对人",
-          "Discord 入口已加入官网页脚、帮助菜单、README，以及可关闭的应用侧边栏卡片",
         ],
         improvements: [
           "任务顶部的智能体活动状态现在悬停即可展开，更方便快速查看当前进展",

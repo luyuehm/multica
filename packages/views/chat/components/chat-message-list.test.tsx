@@ -746,6 +746,19 @@ describe("ChatMessageList failure copy (MUL-5370 regression)", () => {
     expect(screen.queryByText(FALLBACK)).not.toBeInTheDocument();
   });
 
+  it("renders dedicated copy for a turn retired by a reached cost budget", async () => {
+    // A chat turn can sit deferred (sealed pending media, retry backoff), and
+    // the promotion-time budget gate fails it with this reason and writes the
+    // assistant outcome itself. Without an entry of its own the reader is told
+    // only "something went wrong", when the one actionable fact is that the
+    // runtime's cost budget is spent until the period resets.
+    renderFailure("budget_exceeded");
+    expect(
+      await screen.findByText(enChat.message_list.failure.budget_exceeded),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(FALLBACK)).not.toBeInTheDocument();
+  });
+
   it("renders dedicated recovery copy for persisted runtime access denial", async () => {
     renderFailure("runtime_access_denied");
     expect(

@@ -146,6 +146,7 @@ var concurrentIndexCleanups = map[string]string{
 	"541_task_supplement_comment_index":                         "task_supplement_comment_uidx",
 	"546_issue_pr_automation_workspace_index":                   "idx_issue_pr_automation_workspace",
 	"547_issue_pull_request_exclusion_workspace_index":          "idx_issue_pull_request_exclusion_workspace",
+	"548_task_supplement_comment_task_index":                    "task_supplement_comment_task_uidx",
 	"510_wakeup_id":                                             "issue_wakeup_id_idx",
 	"511_wakeup_issue":                                          "issue_wakeup_issue_idx",
 	"512_wakeup_due":                                            "issue_wakeup_due_idx",
@@ -340,6 +341,8 @@ var concurrentIndexCleanups = map[string]string{
 	"482_agent_task_queue_telemetry_started_index":              "idx_agent_task_queue_telemetry_started",
 	"484_issue_triage_state_index":                              "idx_issue_triage_state",
 	"537_issue_duplicate_of_index":                              "idx_issue_duplicate_of",
+	"903_runtime_cost_budget_pkey_index":                        "runtime_cost_budget_pkey_uidx",
+	"905_runtime_cost_budget_scope_index":                       "idx_runtime_cost_budget_scope",
 }
 
 // concurrentDownIndexCleanups covers every migration whose down direction
@@ -365,6 +368,7 @@ var concurrentDownIndexCleanups = map[string]string{
 	"437_drop_agent_runtime_last_seen_at_index":             "idx_agent_runtime_last_seen_at",
 	"450_drop_comment_delegated_failure_pending_index":      "idx_comment_delegated_failure_pending",
 	"453_drop_pending_issue_agent_unique":                   "idx_one_pending_task_per_issue_agent_v2",
+	"548_task_supplement_comment_task_index":                "task_supplement_comment_uidx",
 	"454_drop_comment_content_bigm_index":                   "idx_comment_content_bigm",
 	"455_drop_comment_content_trgm_index":                   "idx_comment_content_trgm",
 	"463_drop_issue_description_bigm_index":                 "idx_issue_description_bigm",
@@ -461,6 +465,10 @@ var upMigrationConditions = map[string]migrationCondition{
 	// else, rather than failing the run (and with it backend startup) on every
 	// database without the extension.
 	"446_issue_properties_bigm_index": whenOperatorClassAvailable(pgBigmOperatorClass),
+	// Fork runtime cost budgets (renumbered 453 -> 539 -> 903). A database that
+	// ran a pre-renumber stem already attached this index as the primary key,
+	// which renamed it, so IF NOT EXISTS would build a redundant duplicate.
+	"903_runtime_cost_budget_pkey_index": whenTableLacksPrimaryKey("public.runtime_cost_budget"),
 }
 
 // Migrations 454 and 455 restore the mutually exclusive comment search index
@@ -574,6 +582,27 @@ func whenOperatorClassAvailable(opclass extensionOperatorClass) migrationConditi
 		}
 		if !available {
 			return false, fmt.Sprintf("operator class %s (%s) is not installed", opclass.OperatorClass, opclass.Extension), nil
+		}
+		return true, "", nil
+	}
+}
+
+// whenTableLacksPrimaryKey applies a migration only while table has no primary
+// key, so an index build that exists solely to back one is skipped once the
+// constraint is in place.
+func whenTableLacksPrimaryKey(table string) migrationCondition {
+	return func(ctx context.Context, conn *pgxpool.Conn) (bool, string, error) {
+		var hasPrimaryKey bool
+		if err := conn.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_constraint
+				WHERE conrelid = to_regclass($1) AND contype = 'p'
+			)
+		`, table).Scan(&hasPrimaryKey); err != nil {
+			return false, "", fmt.Errorf("inspect primary key of %s: %w", table, err)
+		}
+		if hasPrimaryKey {
+			return false, fmt.Sprintf("%s already has a primary key", table), nil
 		}
 		return true, "", nil
 	}

@@ -74,6 +74,10 @@ import type {
   IssueGroupPageState,
 } from "../surface/use-issue-group-branches";
 
+// The fork's `archive` status (#39) is never a default column: it only shows
+// through an explicit status filter, which arrives as `visibleStatuses`.
+const DEFAULT_SWIMLANE_STATUSES = BUILT_IN_STATUS_ORDER.filter((status) => status !== "archive");
+
 const COLUMN_WIDTH = 280;
 const COLUMN_GAP = 16;
 
@@ -610,7 +614,7 @@ function SwimLaneViewImpl({
   issues,
   unfilteredIssues,
   activeFilters: activeFiltersProp,
-  visibleStatuses = BUILT_IN_STATUS_ORDER,
+  visibleStatuses = DEFAULT_SWIMLANE_STATUSES,
   hiddenStatuses = [],
   onMoveIssue,
   childProgressMap = EMPTY_PROGRESS_MAP,

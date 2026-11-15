@@ -75,6 +75,7 @@ import type {
   PluginPreview,
   PluginSurfaceLaunch,
   ResourceLabelsResponse,
+  RuntimeCostBudget,
   RuntimeModelListRequest,
   SearchIssuesResponse,
   SearchProjectsResponse,
@@ -87,6 +88,7 @@ import type {
   TimelineEntry,
   User,
   WebhookDelivery,
+  OfficeConfig,
   WorkspaceMcpServer,
 } from "../types";
 import type { CloudRuntimeNode } from "../runtimes/cloud-runtime";
@@ -752,6 +754,10 @@ export interface AppConfigResponse {
   daemon_server_url?: string;
   daemon_app_url?: string;
   workspace_creation_disabled?: boolean;
+  // True only when the server has a fully configured OnlyOffice Document
+  // Server. Older servers (and forks deployed without OnlyOffice) omit it;
+  // treat missing as false so the office-attachment preview Eye stays hidden.
+  office_preview_enabled?: boolean;
   /** Whether this deployment offers the self-hosted Git provider integration
    * (self-host only; off on the managed cloud). Absent/false hides the whole
    * Settings → Integrations "Git providers" section. */
@@ -905,6 +911,18 @@ export const EMPTY_ATTACHMENT: Attachment = {
   created_at: "",
 };
 
+export const OfficeConfigResponseSchema = z
+  .object({
+    document_server_url: z.string(),
+    config: z.record(z.string(), z.unknown()),
+  })
+  .loose();
+
+export const EMPTY_OFFICE_CONFIG: OfficeConfig = {
+  document_server_url: "",
+  config: {},
+};
+
 // All object schemas use `.loose()` so unknown server-side fields pass
 // through unchanged. zod 4's `.object()` defaults to STRIP, which would
 // silently drop new fields and surface as a "field neither showed up in
@@ -912,6 +930,22 @@ export const EMPTY_ATTACHMENT: Attachment = {
 // wasn't updated in lock-step. `.loose()` removes that synchronisation
 // hazard — the schema validates the shape it knows about and leaves the
 // rest alone.
+// One receipt per running turn a comment steered. A malformed receipt is
+// dropped on its own rather than failing the whole comment.
+const CommentSupplementReceiptSchema = z.object({
+  task_id: z.string(),
+  agent_id: z.string().optional().catch(undefined),
+  status: z.enum(["pending", "delivering", "delivered", "failed"]),
+  failure_reason: z.string().optional().catch(undefined),
+  delivered_at: z.string().optional().catch(undefined),
+});
+
+const CommentSupplementReceiptsSchema = z.array(z.unknown()).optional().catch(undefined)
+  .transform((raw) => raw?.flatMap((item) => {
+    const parsed = CommentSupplementReceiptSchema.safeParse(item);
+    return parsed.success ? [parsed.data] : [];
+  }));
+
 const TimelineEntrySchema = z.object({
   type: z.string(),
   id: z.string(),
@@ -930,6 +964,7 @@ const TimelineEntrySchema = z.object({
   reactions: z.array(ReactionSchema).optional(),
   attachments: z.array(AttachmentSchema).optional(),
   source_task_id: z.string().nullable().optional(),
+  supplements: CommentSupplementReceiptsSchema,
   supplement_task_id: z.string().optional().catch(undefined),
   supplement_status: z.enum(["pending", "delivering", "delivered", "failed"]).optional().catch(undefined),
   supplement_failure_reason: z.string().optional().catch(undefined),
@@ -1013,6 +1048,7 @@ export const AppConfigSchema = z.object({
   daemon_server_url: OptionalStringSchema,
   daemon_app_url: OptionalStringSchema,
   workspace_creation_disabled: BooleanWithDefaultSchema(false).optional(),
+  office_preview_enabled: BooleanWithDefaultSchema(false).optional(),
   vcs_integration_available: BooleanWithDefaultSchema(false).optional(),
   feature_flags: FeatureFlagsSchema,
   local_worktree_supported: BooleanWithDefaultSchema(false),
@@ -1030,6 +1066,7 @@ export const EMPTY_APP_CONFIG: AppConfigResponse = {
   daemon_server_url: "",
   daemon_app_url: "",
   workspace_creation_disabled: false,
+  office_preview_enabled: false,
   vcs_integration_available: false,
   // Fail closed: an unreadable config must not look like a server that
   // validates execution_mode.
@@ -1079,6 +1116,7 @@ export const CommentSchema = z.object({
   updated_at: z.string(),
   revision: z.number().int().positive().optional(),
   source_task_id: z.string().nullable().optional(),
+  supplements: CommentSupplementReceiptsSchema,
   supplement_task_id: z.string().optional().catch(undefined),
   supplement_status: z.enum(["pending", "delivering", "delivered", "failed"]).optional().catch(undefined),
   supplement_failure_reason: z.string().optional().catch(undefined),
@@ -1643,6 +1681,7 @@ const CostSplitShape = {
 
 const DashboardUsageDailySchema = z.object({
   date: z.string().default(""),
+  pricing_date: z.string().default(""),
   provider: z.string().default(""),
   model: z.string().default(""),
   input_tokens: z.number().default(0),
@@ -1657,6 +1696,7 @@ export const DashboardUsageDailyListSchema = z.array(DashboardUsageDailySchema);
 
 const DashboardUsageByAgentSchema = z.object({
   agent_id: z.string().default(""),
+  pricing_date: z.string().default(""),
   provider: z.string().default(""),
   model: z.string().default(""),
   input_tokens: z.number().default(0),
@@ -1720,7 +1760,7 @@ export const DashboardFailureByAgentListSchema = z.array(
 );
 
 // ---------------------------------------------------------------------------
-// Runtime usage schemas — the runtime-detail page's four usage endpoints
+// Runtime usage schemas — the runtime-detail page's usage endpoints
 // (`/api/runtimes/:id/usage*`). Same leniency rules as the dashboard
 // schemas above: numbers default to 0, strings to "", `.loose()` passes
 // unknown fields.
@@ -1729,6 +1769,7 @@ export const DashboardFailureByAgentListSchema = z.array(
 const RuntimeUsageSchema = z.object({
   runtime_id: z.string().default(""),
   date: z.string().default(""),
+  pricing_date: z.string().default(""),
   provider: z.string().default(""),
   model: z.string().default(""),
   input_tokens: z.number().default(0),
@@ -1740,6 +1781,18 @@ const RuntimeUsageSchema = z.object({
 
 export const RuntimeUsageListSchema = z.array(RuntimeUsageSchema);
 
+const RuntimeUsageCoverageSchema = z.object({
+  date: z.string().default(""),
+  completed_runs: z.number().default(0),
+  complete_runs: z.number().default(0),
+  output_only_runs: z.number().default(0),
+  missing_runs: z.number().default(0),
+}).loose();
+
+export const RuntimeUsageCoverageListSchema = z.array(
+  RuntimeUsageCoverageSchema,
+);
+
 const RuntimeHourlyActivitySchema = z.object({
   hour: z.number().default(0),
   count: z.number().default(0),
@@ -1749,6 +1802,7 @@ export const RuntimeHourlyActivityListSchema = z.array(RuntimeHourlyActivitySche
 
 const RuntimeUsageByAgentSchema = z.object({
   agent_id: z.string().default(""),
+  pricing_date: z.string().default(""),
   provider: z.string().default(""),
   model: z.string().default(""),
   input_tokens: z.number().default(0),
@@ -1762,7 +1816,9 @@ const RuntimeUsageByAgentSchema = z.object({
 export const RuntimeUsageByAgentListSchema = z.array(RuntimeUsageByAgentSchema);
 
 const RuntimeUsageByHourSchema = z.object({
+  pricing_date: z.string().default(""),
   hour: z.number().default(0),
+  provider: z.string().default(""),
   model: z.string().default(""),
   input_tokens: z.number().default(0),
   output_tokens: z.number().default(0),
@@ -1773,6 +1829,33 @@ const RuntimeUsageByHourSchema = z.object({
 }).loose();
 
 export const RuntimeUsageByHourListSchema = z.array(RuntimeUsageByHourSchema);
+
+const RuntimeBudgetPeriodSchema = z.object({
+  limit_usd: z.number().default(0),
+  used_usd: z.number().default(0),
+  period_start: z.string().default(""),
+  reset_at: z.string().default(""),
+  reached: z.boolean().default(false),
+}).loose();
+
+const RuntimeBudgetScopeSchema = z.object({
+  user_id: z.string().optional(),
+  daily: RuntimeBudgetPeriodSchema.nullable().default(null),
+  weekly: RuntimeBudgetPeriodSchema.nullable().default(null),
+  monthly: RuntimeBudgetPeriodSchema.nullable().default(null),
+}).loose();
+
+export const RuntimeCostBudgetSchema = z.object({
+  runtime: RuntimeBudgetScopeSchema.nullable().default(null),
+  users: z.array(RuntimeBudgetScopeSchema).default([]),
+  can_manage: z.boolean().default(false),
+}).loose();
+
+export const EMPTY_RUNTIME_COST_BUDGET: RuntimeCostBudget = {
+  runtime: null,
+  users: [],
+  can_manage: false,
+};
 
 // ---------------------------------------------------------------------------
 // Agent task responses. The base object stays loose so daemon/runtime fields
@@ -1826,6 +1909,7 @@ const OptionalStringArraySchema = z.preprocess(
 // pricing on the counters it does have, and the "we have no usage at all" case
 // is carried by the field's absence, not by a zeroed entry.
 const TaskUsageSchema = z.object({
+  pricing_date: z.string().optional(),
   provider: z.string().optional(),
   model: z.string().default(""),
   input_tokens: z.number().default(0),
@@ -2498,6 +2582,10 @@ export const UserSchema = z.object({
   timezone: z.string().nullable().default(null),
   created_at: z.string().default(""),
   updated_at: z.string().default(""),
+  // Optional: absent/non-boolean values must not be coerced to `true`, so
+  // "not an admin" and "server didn't send the field" collapse to the same
+  // falsy `undefined` instead of ever defaulting to admin access.
+  is_system_admin: z.boolean().optional(),
 }).loose();
 
 export const EMPTY_USER: User = {

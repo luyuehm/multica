@@ -467,6 +467,8 @@ export interface AgentTask {
  * when cost_usd_ticks is absent", which is what the estimator already assumes.
  */
 export interface TaskUsage {
+  // UTC day the usage was recorded; selects effective-dated provider rates.
+  pricing_date?: string;
   provider?: string;
   model: string;
   input_tokens: number;
@@ -954,6 +956,7 @@ export interface IssueUsageSummary {
 export interface RuntimeUsage {
   runtime_id: string;
   date: string;
+  pricing_date?: string;
   provider: string;
   model: string;
   input_tokens: number;
@@ -965,6 +968,14 @@ export interface RuntimeUsage {
   uncosted_output_tokens?: number;
   uncosted_cache_read_tokens?: number;
   uncosted_cache_write_tokens?: number;
+}
+
+export interface RuntimeUsageCoverage {
+  date: string;
+  completed_runs: number;
+  complete_runs: number;
+  output_only_runs: number;
+  missing_runs: number;
 }
 
 export interface RuntimeHourlyActivity {
@@ -979,6 +990,7 @@ export interface RuntimeHourlyActivity {
 // agent_id and sums cost per agent across models.
 export interface RuntimeUsageByAgent {
   agent_id: string;
+  pricing_date?: string;
   provider: string;
   model: string;
   input_tokens: number;
@@ -997,7 +1009,9 @@ export interface RuntimeUsageByAgent {
 // zero activity are omitted by the server; the client fills the gap to
 // render a continuous axis. Model preserved for client-side cost math.
 export interface RuntimeUsageByHour {
+  pricing_date?: string;
   hour: number;
+  provider?: string;
   model: string;
   input_tokens: number;
   output_tokens: number;
@@ -1011,6 +1025,45 @@ export interface RuntimeUsageByHour {
   task_count: number;
 }
 
+// Runtime cost budget (`/api/runtimes/:id/budget`). Periods are UTC calendar
+// windows; a null period is unlimited. `runtime` is the total scope (blocks
+// everyone), `users` are per-owner scopes. `can_manage` mirrors the server's
+// owner/admin gate so the UI shows the editor only when a PUT would succeed.
+export type RuntimeBudgetPeriodKey = "daily" | "weekly" | "monthly";
+
+export interface RuntimeBudgetPeriod {
+  limit_usd: number;
+  used_usd: number;
+  period_start: string;
+  reset_at: string;
+  reached: boolean;
+}
+
+export interface RuntimeBudgetScope {
+  user_id?: string;
+  daily: RuntimeBudgetPeriod | null;
+  weekly: RuntimeBudgetPeriod | null;
+  monthly: RuntimeBudgetPeriod | null;
+}
+
+export interface RuntimeCostBudget {
+  runtime: RuntimeBudgetScope | null;
+  users: RuntimeBudgetScope[];
+  can_manage: boolean;
+}
+
+export interface RuntimeBudgetScopeInput {
+  user_id?: string;
+  daily_usd: number | null;
+  weekly_usd: number | null;
+  monthly_usd: number | null;
+}
+
+export interface RuntimeCostBudgetInput {
+  runtime: RuntimeBudgetScopeInput | null;
+  users: RuntimeBudgetScopeInput[];
+}
+
 // One (date, provider, model) bucket of token usage for the workspace
 // dashboard. Workspace-scoped (no runtime_id) and optionally narrowed to a
 // single project on the server side. `provider` is kept on the wire so the
@@ -1019,6 +1072,7 @@ export interface RuntimeUsageByHour {
 // stays client-side via the model pricing table.
 export interface DashboardUsageDaily {
   date: string;
+  pricing_date?: string;
   provider: string;
   model: string;
   input_tokens: number;
@@ -1038,6 +1092,7 @@ export interface DashboardUsageDaily {
 // sums cost.
 export interface DashboardUsageByAgent {
   agent_id: string;
+  pricing_date?: string;
   provider: string;
   model: string;
   input_tokens: number;

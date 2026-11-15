@@ -564,25 +564,26 @@ type ClientUsageDaily struct {
 }
 
 type Comment struct {
-	ID                pgtype.UUID        `json:"id"`
-	IssueID           pgtype.UUID        `json:"issue_id"`
-	AuthorType        string             `json:"author_type"`
-	AuthorID          pgtype.UUID        `json:"author_id"`
-	Content           string             `json:"content"`
-	Type              string             `json:"type"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	ParentID          pgtype.UUID        `json:"parent_id"`
-	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
-	ResolvedAt        pgtype.Timestamptz `json:"resolved_at"`
-	ResolvedByType    pgtype.Text        `json:"resolved_by_type"`
-	ResolvedByID      pgtype.UUID        `json:"resolved_by_id"`
-	SourceTaskID      pgtype.UUID        `json:"source_task_id"`
-	QuickActionID     pgtype.UUID        `json:"quick_action_id"`
-	ViaPluginID       pgtype.UUID        `json:"via_plugin_id"`
-	Revision          int64              `json:"revision"`
-	RecoverySettledAt pgtype.Timestamptz `json:"recovery_settled_at"`
-	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
+	ID                 pgtype.UUID        `json:"id"`
+	IssueID            pgtype.UUID        `json:"issue_id"`
+	AuthorType         string             `json:"author_type"`
+	AuthorID           pgtype.UUID        `json:"author_id"`
+	Content            string             `json:"content"`
+	Type               string             `json:"type"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	ParentID           pgtype.UUID        `json:"parent_id"`
+	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
+	ResolvedAt         pgtype.Timestamptz `json:"resolved_at"`
+	ResolvedByType     pgtype.Text        `json:"resolved_by_type"`
+	ResolvedByID       pgtype.UUID        `json:"resolved_by_id"`
+	SourceTaskID       pgtype.UUID        `json:"source_task_id"`
+	QuickActionID      pgtype.UUID        `json:"quick_action_id"`
+	ViaPluginID        pgtype.UUID        `json:"via_plugin_id"`
+	Revision           int64              `json:"revision"`
+	RecoverySettledAt  pgtype.Timestamptz `json:"recovery_settled_at"`
+	DeletedAt          pgtype.Timestamptz `json:"deleted_at"`
+	SuppressedAgentIds []pgtype.UUID      `json:"suppressed_agent_ids"`
 }
 
 type CommentReaction struct {
@@ -949,6 +950,19 @@ type IssueSubscriber struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UnsubscribedAt pgtype.Timestamptz `json:"unsubscribed_at"`
 	OptOutScope    pgtype.Text        `json:"opt_out_scope"`
+}
+
+type IssueTemplate struct {
+	ID           pgtype.UUID        `json:"id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	Name         string             `json:"name"`
+	IssueTitle   string             `json:"issue_title"`
+	IssueContent string             `json:"issue_content"`
+	Config       []byte             `json:"config"`
+	CreatedBy    pgtype.UUID        `json:"created_by"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	ArchivedAt   pgtype.Timestamptz `json:"archived_at"`
 }
 
 type IssueToLabel struct {
@@ -1320,6 +1334,22 @@ type QuickAction struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
+type RuntimeCostBudget struct {
+	ID                         pgtype.UUID        `json:"id"`
+	WorkspaceID                pgtype.UUID        `json:"workspace_id"`
+	RuntimeID                  pgtype.UUID        `json:"runtime_id"`
+	UserID                     pgtype.UUID        `json:"user_id"`
+	DailyLimitUsdTicks         pgtype.Int8        `json:"daily_limit_usd_ticks"`
+	WeeklyLimitUsdTicks        pgtype.Int8        `json:"weekly_limit_usd_ticks"`
+	MonthlyLimitUsdTicks       pgtype.Int8        `json:"monthly_limit_usd_ticks"`
+	DailyNotifiedPeriodStart   pgtype.Timestamptz `json:"daily_notified_period_start"`
+	WeeklyNotifiedPeriodStart  pgtype.Timestamptz `json:"weekly_notified_period_start"`
+	MonthlyNotifiedPeriodStart pgtype.Timestamptz `json:"monthly_notified_period_start"`
+	UpdatedBy                  pgtype.UUID        `json:"updated_by"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -1555,7 +1585,8 @@ type User struct {
 	Language                pgtype.Text        `json:"language"`
 	ProfileDescription      string             `json:"profile_description"`
 	// User-preferred IANA timezone for report rendering (Viewing tz). NULL means "use the browser-detected tz at render time". Affects dashboards, charts, and any "today" label shown to this user. Does not affect data materialisation — all rollups remain in UTC.
-	Timezone pgtype.Text `json:"timezone"`
+	Timezone      pgtype.Text `json:"timezone"`
+	AccountStatus string      `json:"account_status"`
 }
 
 type UserComposioConnection struct {

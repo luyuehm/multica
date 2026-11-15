@@ -426,6 +426,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		AllowSignup:              os.Getenv("ALLOW_SIGNUP") != "false",
 		AllowedEmails:            splitAndTrim(os.Getenv("ALLOWED_EMAILS")),
 		AllowedEmailDomains:      splitAndTrim(os.Getenv("ALLOWED_EMAIL_DOMAINS")),
+		AdminEmails:              splitAndTrim(os.Getenv("ADMIN_EMAILS")),
 		DisableWorkspaceCreation: os.Getenv("DISABLE_WORKSPACE_CREATION") == "true",
 		VCSIntegrationEnabled:    os.Getenv("MULTICA_VCS_INTEGRATION_ENABLED") == "true",
 		PublicURL:                strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PUBLIC_URL")), "/"),
@@ -436,13 +437,19 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		AttachmentDownloadMode:   os.Getenv("ATTACHMENT_DOWNLOAD_MODE"),
 		AttachmentDownloadURLTTL: envDuration("ATTACHMENT_DOWNLOAD_URL_TTL", 30*time.Minute),
 		AttachmentFrameAncestors: origins,
-		PluginSurfaceOrigin:      strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PLUGIN_SURFACE_ORIGIN")), "/"),
-		LLMAPIKey:                strings.TrimSpace(os.Getenv("MULTICA_LLM_API_KEY")),
-		LLMBaseURL:               strings.TrimSpace(os.Getenv("MULTICA_LLM_BASE_URL")),
-		LLMDefaultModel:          strings.TrimSpace(os.Getenv("MULTICA_LLM_DEFAULT_MODEL")),
-		LLMMaxRetries:            opts.LLMMaxRetries,
-		LLMDisableThinking:       opts.LLMDisableThinking,
-		ServerVersion:            normalizeServerVersion(version),
+
+		OnlyOfficeEnabled:                 os.Getenv("ONLYOFFICE_ENABLED") == "true",
+		OnlyOfficeDocumentServerPublicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("ONLYOFFICE_DOCUMENT_SERVER_PUBLIC_URL")), "/"),
+		OnlyOfficeJWTSecret:               os.Getenv("ONLYOFFICE_JWT_SECRET"),
+		OnlyOfficeFetchSecret:             os.Getenv("ONLYOFFICE_FETCH_SECRET"),
+		OnlyOfficeFetchBaseURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("ONLYOFFICE_FETCH_BASE_URL")), "/"),
+		PluginSurfaceOrigin:               strings.TrimRight(strings.TrimSpace(os.Getenv("MULTICA_PLUGIN_SURFACE_ORIGIN")), "/"),
+		LLMAPIKey:                         strings.TrimSpace(os.Getenv("MULTICA_LLM_API_KEY")),
+		LLMBaseURL:                        strings.TrimSpace(os.Getenv("MULTICA_LLM_BASE_URL")),
+		LLMDefaultModel:                   strings.TrimSpace(os.Getenv("MULTICA_LLM_DEFAULT_MODEL")),
+		LLMMaxRetries:                     opts.LLMMaxRetries,
+		LLMDisableThinking:                opts.LLMDisableThinking,
+		ServerVersion:                     normalizeServerVersion(version),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	invitationRateLimits := handler.DefaultInvitationRateLimits()
@@ -1353,14 +1360,30 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	}
 	// Auth caches: PAT cache is shared between the regular Auth middleware,
 	// the DaemonAuth fallback (mul_) path, and the revoke handler
-	// (invalidate). DaemonTokenCache backs the DaemonAuth mdt_ path. Both
+	// (invalidate). The mdt_ daemon-token path is deliberately uncached —
+	// see DaemonAuth — so token deletion is authoritative per-request.
 	// constructors return nil when rdb is nil — every consumer handles that
 	// as "no cache, always hit DB".
 	patCache := auth.NewPATCache(rdb)
-	daemonTokenCache := auth.NewDaemonTokenCache(rdb)
 	h.PATCache = patCache
-	h.DaemonTokenCache = daemonTokenCache
 	h.MembershipCache = auth.NewMembershipCache(rdb)
+
+	// Account guard: shared by Auth and DaemonAuth so both middlewares
+	// enforce account_status (suspension) from the same cached lookup.
+	accountGuard := &auth.AccountGuard{Queries: queries, Cache: auth.NewAccountStatusCache(rdb)}
+	h.AccountGuard = accountGuard
+	// The hub verifies a user's CURRENT status before acting on a suspension
+	// control frame, so a relay replay of an old suspend event cannot kick a
+	// since-restored account.
+	hub.SetAccountChecker(accountGuard)
+	h.DisconnectUser = func(userID string) error {
+		hub.DisconnectUser(userID)
+		return nil
+	}
+	h.DisconnectDaemonRuntimes = func(runtimeIDs []string) error {
+		daemonHub.DisconnectRuntimes(runtimeIDs)
+		return nil
+	}
 
 	// Cloud PAT verifier: validates mcn_ tokens against Multica Cloud
 	// Fleet. Returns nil when no Cloud URL is configured — the Auth /
@@ -1448,7 +1471,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		return util.UUIDToString(ws.ID), nil
 	})
 	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		realtime.HandleWebSocket(hub, mc, pr, slugResolver, w, r)
+		realtime.HandleWebSocket(hub, mc, pr, accountGuard, slugResolver, w, r)
 	})
 
 	// Local file serving (when using local storage). Served through the
@@ -1544,7 +1567,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {
-		r.Use(middleware.DaemonAuth(queries, patCache, daemonTokenCache, cloudPATVerifier))
+		r.Use(middleware.DaemonAuth(queries, patCache, cloudPATVerifier, accountGuard))
 
 		r.Post("/register", h.DaemonRegister)
 		r.Post("/deregister", h.DaemonDeregister)
@@ -1586,6 +1609,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/tasks/{taskId}/fail", h.FailTask)
 		r.Post("/tasks/{taskId}/usage", h.ReportTaskUsage)
 		r.Post("/tasks/{taskId}/messages", h.ReportTaskMessages)
+		r.Post("/tasks/{taskId}/activity", h.ReportTaskActivity)
 		r.Get("/tasks/{taskId}/messages", h.ListTaskMessages)
 		r.Post("/tasks/{taskId}/cancel-ack", h.AckTaskCancelled)
 
@@ -1598,6 +1622,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/runtimes/{runtimeId}/recover-orphans", h.RecoverOrphanedTasks)
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 	})
+
+	// OnlyOffice file fetch — PUBLIC, no user auth. The Document Server
+	// authenticates with the short-lived HMAC token in the query string and
+	// sends its own Authorization JWT, which must not hit middleware.Auth.
+	r.Get("/api/office/{id}/content", h.ServeOfficeContent)
 
 	// Public Plugin Action API. This is the stable, globally versioned contract
 	// exposed on the Plugin API origin. It accepts only mpi_/mpc_ bearer tokens;
@@ -1618,7 +1647,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// signed-in user's session and the installation header. Keeping it outside
 	// /v1 prevents the Public API from accepting session cookies.
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner))
+		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner, accountGuard))
 		r.Route(pluginBridgePrefix, func(r chi.Router) {
 			registerPluginActionRoutes(r, h)
 			// ui / manual only. `event` is dispatched by the host off the event
@@ -1628,7 +1657,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	})
 
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner))
+		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner, accountGuard))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
 
 		// Plugin Action API. Called by the HOST PAGE on the signed-in user's
@@ -1644,6 +1673,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Patch("/api/me", h.UpdateMe)
 		r.Patch("/api/me/onboarding", h.PatchOnboarding)
 		r.Post("/api/me/onboarding/complete", h.CompleteOnboarding)
+
+		// --- System-admin routes (gated by ADMIN_EMAILS via requireSystemAdmin) ---
+		r.Get("/api/admin/users", h.ListAllUsers)
+		r.Patch("/api/admin/users/{id}/status", h.SetUserAccountStatus)
 		r.Post("/api/me/onboarding/cloud-waitlist", h.JoinCloudWaitlist)
 		// DEPRECATED — shim routes for desktop < v3 during the rollout
 		// window. v3 frontend creates the Helper agent + starter issue
@@ -2181,6 +2214,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// Attachments
 			r.Get("/api/attachments/{id}", h.GetAttachmentByID)
+			r.Get("/api/attachments/{id}/office-config", h.GetOfficeConfig)
 			// /api/attachments/{id}/download is registered in the
 			// outer Auth-only group above so it can be loaded as a
 			// native <img>/<video> src without workspace headers
@@ -2283,6 +2317,24 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			// Issue templates
+			r.Route("/api/issue-templates", func(r chi.Router) {
+				r.Get("/", h.ListIssueTemplates)
+				r.Post("/", h.CreateIssueTemplate)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.GetIssueTemplate)
+					r.Put("/", h.UpdateIssueTemplate)
+					// Templates archive instead of delete (RIC-906); DELETE stays
+					// for workspace teardown and true removal.
+					r.Post("/archive", h.ArchiveIssueTemplate)
+					r.Post("/unarchive", h.UnarchiveIssueTemplate)
+					r.Delete("/", h.DeleteIssueTemplate)
+					// Instantiate parses template variables and returns a
+					// prefilled new-issue payload without creating an issue.
+					r.Post("/instantiate", h.InstantiateIssueTemplate)
+				})
+			})
+
 			// Dashboard — workspace-wide token + run-time rollups for the
 			// "/{slug}/dashboard" page. Optional ?project_id filter scopes
 			// the rollup to a single project.
@@ -2301,8 +2353,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Route("/{runtimeId}", func(r chi.Router) {
 					r.Patch("/", h.UpdateAgentRuntime)
 					r.Get("/usage", h.GetRuntimeUsage)
+					r.Get("/usage/coverage", h.GetRuntimeUsageCoverage)
 					r.Get("/usage/by-agent", h.GetRuntimeUsageByAgent)
 					r.Get("/usage/by-hour", h.GetRuntimeUsageByHour)
+					r.Get("/budget", h.GetRuntimeCostBudget)
+					r.Put("/budget", h.PutRuntimeCostBudget)
 					r.Get("/activity", h.GetRuntimeTaskActivity)
 					r.Post("/update", h.InitiateUpdate)
 					r.Get("/update/{updateId}", h.GetUpdate)

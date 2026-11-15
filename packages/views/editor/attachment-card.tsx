@@ -10,6 +10,7 @@
  */
 
 import { Download, Eye, FileText, Loader2, Trash2 } from "lucide-react";
+import { useConfigStore } from "@multica/core/config";
 import { useT } from "../i18n";
 import { canOpenPreview, getPreviewKind } from "./utils/preview";
 
@@ -137,7 +138,13 @@ export function AttachmentCard({
   const kind = filename ? getPreviewKind(contentType, filename) : null;
   // Without an attachmentId only the URL-renderable kinds open — otherwise
   // the Eye button would call tryOpen, get rejected, and do nothing.
-  const canPreview = !!href && canOpenPreview(kind, !!attachmentId);
+  // Office preview needs a configured OnlyOffice Document Server. When the
+  // backend reports it's unavailable (forks deployed without OnlyOffice, or a
+  // misconfigured one), hide the Eye — opening it would only 404/503.
+  const officePreviewEnabled = useConfigStore((s) => s.officePreviewEnabled);
+  const officeUnavailable = kind === "office" && !officePreviewEnabled;
+  const canPreview =
+    !!href && !officeUnavailable && canOpenPreview(kind, !!attachmentId);
 
   return (
     <div className="my-1">

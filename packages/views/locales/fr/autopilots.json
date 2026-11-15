@@ -86,6 +86,7 @@
     "run_blocked_already_active": "Non déclenchée — une exécution récente couvre déjà ce cas",
     "run_blocked_quota_exceeded": "Non déclenché — la limite d'exécutions de la période est atteinte",
     "run_blocked_issue_limit_reached": "Non déclenchée : l'espace de travail a atteint sa limite de tâches",
+    "run_blocked_budget_exceeded": "Non déclenché — le runtime a atteint son budget de coût ; réessayez après la réinitialisation de la période",
     "run_blocked_generic": "Non déclenchée — l'exécution a été bloquée",
     "section_properties": "Propriétés",
     "section_triggers": "Déclencheurs",

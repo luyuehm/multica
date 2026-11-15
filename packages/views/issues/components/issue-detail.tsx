@@ -64,7 +64,7 @@ import { PropertyIcon } from "../../common/property-icon";
 import type { Attachment, Issue, IssueProperty, IssueStatus, IssueStatusCategory, IssuePriority, TimelineEntry, UpdateIssueRequest } from "@multica/core/types";
 import { contentReferencesAttachment } from "@multica/core/types";
 import { isBuiltInIssueStatus } from "@multica/core/issue-statuses";
-import { commentLandingTarget } from "@multica/core/issues/comment-deletion";
+import { commentLandingTarget, isDeletedComment } from "@multica/core/issues/comment-deletion";
 import { formatDateOnly, isPastDateOnly } from "@multica/core/issues/date";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { toast } from "sonner";
@@ -104,15 +104,15 @@ import { WakeupsSection } from "./wakeups-section";
 import { QuickActionsSection } from "./quick-actions-section";
 import { PluginPanelSection } from "../../plugins";
 import { PullRequestsSection } from "./pull-requests-section";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useGitHubSettings } from "@multica/core/github";
-import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useRecentContextStore } from "@multica/core/chat";
 import { useModalStore } from "@multica/core/modals";
-import { issueListOptions, issueDetailOptions, childIssuesOptions, childIssueProgressOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
+import { issueKeys, issueListOptions, issueDetailOptions, childIssuesOptions, childIssueProgressOptions, issueAttachmentsOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
@@ -120,6 +120,7 @@ import { propertyListOptions } from "@multica/core/properties";
 import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
 import {
   selectExpandedResolved,
+  useCommentCollapseStore,
   useRecentIssuesStore,
   useResolvedExpandStore,
   useSubIssuesCollapseStore,
@@ -1249,6 +1250,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const locale = useLocale();
   const timeAgo = useTimeAgo();
   const id = issueId;
+  // Still needed by the fork's missing-highlight timeline refetch below.
+  // `backOrReplace` is gone: upstream extracted the inline not-found branch
+  // into <IssueNotFound />, which owns its own navigation.
+  const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const paths = useWorkspacePaths();
   const openModal = useModalStore((state) => state.open);
@@ -1456,6 +1461,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     });
   }, []);
   const didHighlightRef = useRef<string | null>(null);
+  const requestedMissingHighlightRef = useRef<string | null>(null);
   // Last seen highlightRequestToken; a bump re-arms didHighlightRef so the
   // landing effect below replays on an already-mounted detail.
   const lastHighlightRequestTokenRef = useRef(highlightRequestToken);
@@ -1753,12 +1759,16 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       items.flatMap((it) => {
         if (it.kind === "activity-group" || !it.entry) return [];
         const replies = timelineView.threadReplies.get(it.id) ?? EMPTY_REPLIES;
+        const resolution = deriveThreadResolution(it.entry, replies);
         return [
           {
             id: it.id,
             entry: it.entry,
-            resolved: deriveThreadResolution(it.entry, replies).kind !== "none",
+            resolved: resolution.kind !== "none",
             participants: collectThreadParticipants(it.entry, replies),
+            // Tombstones render no row, so they get no tick either.
+            replies: replies.filter((reply) => !isDeletedComment(reply)),
+            resolutionReplyId: resolution.kind === "reply" ? resolution.resolutionId : null,
           },
         ];
       }),
@@ -1879,6 +1889,78 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     },
     [isFlatTimeline, items, jumpToComment, flashJumpTarget],
   );
+  // Minimap jump to a reply. A reply's anchor exists only while its thread is
+  // open, so first undo whatever hides it — the reader's own collapse, a root
+  // resolution folding the whole thread into a bar, or a reply resolution
+  // folding the other replies — then mount the thread and let the effect
+  // below align the reply once its row lands.
+  const [pendingReplyJump, setPendingReplyJump] = useState<{ replyId: string; rootId: string } | null>(null);
+  const jumpToReply = useCallback(
+    (replyId: string) => {
+      const rootId = replyToRoot.get(replyId);
+      const index = rootId ? items.findIndex((it) => it.id === rootId) : -1;
+      const rootItem = items[index];
+      const root = rootItem && rootItem.kind !== "activity-group" ? rootItem.entry : undefined;
+      if (!rootId || !root) return;
+      const collapse = useCommentCollapseStore.getState();
+      if (collapse.isCollapsed(id, rootId)) collapse.toggle(id, rootId);
+      if (!expandedResolved.has(rootId)) {
+        const resolution = deriveThreadResolution(root, timelineView.threadReplies.get(rootId) ?? EMPTY_REPLIES);
+        if (resolution.kind === "root" || (resolution.kind === "reply" && resolution.resolutionId !== replyId)) {
+          toggleResolvedExpand(rootId, true);
+        }
+      }
+      if (!isFlatTimeline) virtuosoRef.current?.scrollToIndex({ index, align: "start", offset: -16 });
+      setPendingReplyJump({ replyId, rootId });
+    },
+    [id, items, replyToRoot, expandedResolved, timelineView.threadReplies, toggleResolvedExpand, isFlatTimeline],
+  );
+  // Land the pending reply once its row is in the DOM. The expansion commits
+  // on the next render and Virtuoso mounts the thread a frame or two later, so
+  // wait by frame (~1s cap), then re-align until async layout (markdown, code
+  // highlight, images) settles. Drive scrollTop directly — never native
+  // scrollIntoView (#3929) — and clear any sticky thread bar pinned at the top
+  // of the viewport so it cannot cover the reply's header.
+  useEffect(() => {
+    const container = scrollContainerEl;
+    if (!pendingReplyJump || !container) return;
+    const { replyId, rootId } = pendingReplyJump;
+    let rafId = 0;
+    let frames = 0;
+    let last = -1;
+    const align = () => {
+      const el = document.getElementById(`comment-${replyId}`);
+      if (!el) {
+        if (++frames < 60) rafId = requestAnimationFrame(align);
+        else setPendingReplyJump(null);
+        return;
+      }
+      const stickyBar = document
+        .getElementById(`comment-${rootId}`)
+        ?.querySelector<HTMLElement>("[data-thread-sticky-bar]");
+      const c = container.getBoundingClientRect();
+      const e = el.getBoundingClientRect();
+      const target = Math.max(
+        0,
+        container.scrollTop + (e.top - c.top) - 16 - (stickyBar?.offsetHeight ?? 0),
+      );
+      container.scrollTop = target;
+      if (Math.abs(target - last) > 1 && ++frames < 90) {
+        last = target;
+        rafId = requestAnimationFrame(align);
+        return;
+      }
+      flashJumpTarget(replyId);
+      setPendingReplyJump(null);
+    };
+    rafId = requestAnimationFrame(align);
+    return () => cancelAnimationFrame(rafId);
+  }, [pendingReplyJump, scrollContainerEl, flashJumpTarget]);
+  const jumpToMinimapTarget = useCallback(
+    (commentId: string) =>
+      replyToRoot.has(commentId) ? jumpToReply(commentId) : jumpToThread(commentId),
+    [replyToRoot, jumpToReply, jumpToThread],
+  );
 
   const {
     reactions: issueReactions,
@@ -1993,6 +2075,26 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }, [allChildrenSelected, childIssueIds, deselectIds, selectIds]);
 
   const loading = issueLoading;
+
+  // Inbox deep-links can reopen an issue whose timeline cache is "fresh"
+  // under the app-wide staleTime: Infinity defaults, but still missing the
+  // newly referenced comment. Detect that gap and force one authoritative
+  // refetch so the highlighted comment can appear without restarting.
+  useEffect(() => {
+    if (!highlightCommentId) {
+      requestedMissingHighlightRef.current = null;
+      return;
+    }
+    if (loading || timelineLoading) return;
+    if (timeline.some((entry) => entry.id === highlightCommentId)) {
+      requestedMissingHighlightRef.current = null;
+      return;
+    }
+    const requestKey = `${id}:${highlightCommentId}`;
+    if (requestedMissingHighlightRef.current === requestKey) return;
+    requestedMissingHighlightRef.current = requestKey;
+    qc.invalidateQueries({ queryKey: issueKeys.timeline(id) });
+  }, [highlightCommentId, id, loading, qc, timeline, timelineLoading]);
 
   // Deep-link landing. Semantically equivalent to navigating to
   // `#comment-${id}`: find the element with that id, scrollIntoView it.
@@ -3624,13 +3726,13 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             column's px-8 padding when the gutter is 0 (overlay scrollbars),
             so it covers neither the scrollbar nor body text. It also clears
             the resize handle's 4px drag strip at the panel edge. Hover
-            previews a thread, click jumps to it. Hidden on mobile: no
+            previews a comment, click jumps to it. Hidden on mobile: no
             hover, and the gutter is too tight. */}
         {!isMobile && (
           <ThreadMinimap
             threads={minimapThreads}
             scrollContainerEl={scrollContainerEl}
-            onJump={jumpToThread}
+            onJump={jumpToMinimapTarget}
             className="absolute bottom-0 right-3 top-12"
           />
         )}

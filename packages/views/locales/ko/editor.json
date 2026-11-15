@@ -90,7 +90,12 @@
     "fullscreen": "전체 화면"
   },
   "file_card": {
-    "uploading": "{{filename}} 업로드 중"
+    "uploading": "{{filename}} 업로드 중",
+    "preview": "{{filename}} 미리보기",
+    "download": "{{filename}} 다운로드",
+    "preview_loading": "미리보기 로딩 중...",
+    "preview_failed": "미리보기를 불러오지 못했습니다",
+    "close_preview": "미리보기 닫기"
   },
   "upload": {
     "failed": "{{filename}}을(를) 업로드하지 못했어요: {{reason}}",

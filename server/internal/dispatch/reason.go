@@ -19,6 +19,8 @@ const (
 	ReasonQueued    ReasonCode = "queued"
 	ReasonCoalesced ReasonCode = "coalesced"
 	ReasonDeferred  ReasonCode = "deferred"
+	// ReasonSteered: the comment went into the target's running turn.
+	ReasonSteered ReasonCode = "steered"
 
 	// ReasonInvocationNotAllowed: the acting principal may not trigger this
 	// target under the invocation-permission model. Deliberately generic — it
@@ -87,12 +89,21 @@ const (
 	// nothing is pending — the trigger is answered by accepting the issue out of
 	// Triage, not by waiting.
 	ReasonIssueInTriage ReasonCode = "issue_in_triage"
+	// ReasonIssueArchived: the target issue is archived (fork status #39) —
+	// retired work refuses new runs until the issue is restored. Reveals
+	// nothing about any target: the caller can already see the issue.
+	ReasonIssueArchived ReasonCode = "issue_archived"
 	// ReasonQuotaExceeded is a policy-neutral refusal for an exhausted
 	// Cloud-provided autopilot interval.
 	ReasonQuotaExceeded ReasonCode = "quota_exceeded"
 	// ReasonIssueLimitReached means a create_issue Autopilot was admitted for a
 	// run, but Cloud's effective workspace issue-count limit blocked the issue.
 	ReasonIssueLimitReached ReasonCode = "issue_limit_reached"
+	// ReasonBudgetExceeded: the target's runtime has a cost budget (total or
+	// for the agent owner) whose current period is spent. The run is not
+	// queued; the user triggers it again after the period resets. Reveals
+	// nothing about a private target: the caller already sees the runtime.
+	ReasonBudgetExceeded ReasonCode = "budget_exceeded"
 	// ReasonInternalError: an unexpected server error prevented a clean decision.
 	ReasonInternalError ReasonCode = "internal_error"
 )
