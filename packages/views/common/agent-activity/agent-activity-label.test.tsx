@@ -116,4 +116,41 @@ describe("AgentActivityLabel", () => {
     );
     expect(screen.getByText("Reading files", { ignore: SHIMMER_COPY })).toBeInTheDocument();
   });
+
+  // The worktree snapshot hold shares wait_reason with the in-place format. It
+  // is written as a machine-readable envelope so board/failover code can
+  // classify the hold; the label is the one place a person reads it, so
+  // unwrapping belongs here. Rendering the envelope verbatim would show
+  // `holder=` and `local_directory=` instead of a sentence.
+  it("unwraps a worktree snapshot hold into a readable label", () => {
+    wrap(
+      <AgentActivityLabel
+        status="waiting_local_directory"
+        taskMessages={[]}
+        waitReason="worktree_snapshot_waiting(holder=a1b2c3d4, local_directory=NuvioTV)"
+      />,
+    );
+    expect(
+      screen.getByText("Waiting for a consistent snapshot of NuvioTV", {
+        ignore: SHIMMER_COPY,
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/local_directory=/, { ignore: SHIMMER_COPY })).not.toBeInTheDocument();
+    expect(screen.queryByText(/holder=/, { ignore: SHIMMER_COPY })).not.toBeInTheDocument();
+  });
+
+  it("still renders the in-place wait reason verbatim", () => {
+    wrap(
+      <AgentActivityLabel
+        status="waiting_local_directory"
+        taskMessages={[]}
+        waitReason="NuvioTV (held by task a1b2c3d4)"
+      />,
+    );
+    expect(
+      screen.getByText("Waiting for NuvioTV (held by task a1b2c3d4)", {
+        ignore: SHIMMER_COPY,
+      }),
+    ).toBeInTheDocument();
+  });
 });
